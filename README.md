@@ -13,6 +13,34 @@ Search and download free licensed photos from Pexels, Unsplash, and Pixabay dire
 - 🤖 **AI Detection**: Visual indicators for AI-generated images with filtering options
 - 📊 **Rich Metadata**: Includes dimensions, file size, print size calculations, and AI status
 
+## Why These Photo Providers?
+
+This plugin integrates with **Pexels**, **Unsplash**, and **Pixabay** - three of the most trusted platforms for freely licensed, high-quality photography:
+
+### 🎨 **High Quality Content**
+- **Professional Photography**: All three platforms maintain strict quality standards and feature professional photographers
+- **Diverse Collections**: Millions of photos covering every topic imaginable - from nature and business to abstract and lifestyle
+- **High Resolution**: Most photos are available in high resolution suitable for both digital and print use
+
+### ⚖️ **Copyright & Licensing Respect**
+- **Clear Licensing**: All photos come with explicit licensing information and usage rights
+- **Attribution Clarity**: Photographer credits and source links are always preserved in metadata
+- **Commercial Use**: Most photos are free for commercial use without complex licensing negotiations
+- **Legal Safety**: Using established platforms reduces copyright infringement risks compared to general web searches
+
+### 🔧 **Technical Excellence**
+- **Reliable APIs**: Well-documented, stable APIs that provide consistent search results and metadata
+- **Rich Metadata**: Detailed information including photographer credits, tags, dimensions, and licensing terms
+- **Global Coverage**: International photographer communities ensuring diverse perspectives and subjects
+- **Regular Updates**: Active platforms with fresh content uploaded daily
+
+### 🌍 **Community & Ethics**
+- **Fair Compensation**: Many photographers on these platforms earn revenue through their work
+- **Attribution Culture**: Strong emphasis on proper photographer attribution and recognition
+- **Community Standards**: Active moderation ensures appropriate content and respect for creators
+
+By focusing on these three established platforms, this plugin ensures you have access to millions of high-quality, legally safe images while supporting the photography community through proper attribution and ethical usage.
+
 ## Installation
 
 ### From GitHub (Manual)
