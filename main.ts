@@ -7,6 +7,7 @@ interface PhotoSearchSettings {
 	saveLocation: string;
 	imageSize: string;
 	saveMetadata: boolean;
+	includeAiImages: boolean;
 }
 
 const DEFAULT_SETTINGS: PhotoSearchSettings = {
@@ -15,7 +16,8 @@ const DEFAULT_SETTINGS: PhotoSearchSettings = {
 	pixabayApiKey: '',
 	saveLocation: 'Images/PhotoSearch',
 	imageSize: 'medium',
-	saveMetadata: true
+	saveMetadata: true,
+	includeAiImages: false
 };
 
 interface Photo {
@@ -243,22 +245,24 @@ export default class PhotoSearchPlugin extends Plugin {
 			}
 		});
 
-		return response.json.photos.map((photo: any): Photo => ({
-			id: `pexels-${photo.id}`,
-			url: photo.url,
-			downloadUrl: photo.src[this.settings.imageSize] || photo.src.medium,
-			photographer: photo.photographer,
-			source: 'Pexels',
-			tags: photo.alt ? photo.alt.split(' ') : [],
-			description: photo.alt,
-			width: photo.width,
-			height: photo.height
-		}));
+		return response.json.photos
+			.filter((photo: any) => this.settings.includeAiImages || !photo.ai_generated)
+			.map((photo: any): Photo => ({
+				id: `pexels-${photo.id}`,
+				url: photo.url,
+				downloadUrl: photo.src[this.settings.imageSize] || photo.src.medium,
+				photographer: photo.photographer,
+				source: 'Pexels',
+				tags: photo.alt ? photo.alt.split(' ') : [],
+				description: photo.alt,
+				width: photo.width,
+				height: photo.height
+			}));
 	}
 
 	async searchUnsplash(query: string): Promise<Photo[]> {
 		const response = await requestUrl({
-			url: `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=20`,
+			url: `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=20${!this.settings.includeAiImages ? '&content_filter=high' : ''}`,
 			headers: {
 				'Authorization': `Client-ID ${this.settings.unsplashApiKey}`
 			}
@@ -279,7 +283,7 @@ export default class PhotoSearchPlugin extends Plugin {
 
 	async searchPixabay(query: string): Promise<Photo[]> {
 		const response = await requestUrl({
-			url: `https://pixabay.com/api/?key=${this.settings.pixabayApiKey}&q=${encodeURIComponent(query)}&image_type=photo&per_page=20`
+			url: `https://pixabay.com/api/?key=${this.settings.pixabayApiKey}&q=${encodeURIComponent(query)}&image_type=photo&per_page=20${!this.settings.includeAiImages ? '&ai_art=false' : ''}`
 		});
 
 		return response.json.hits.map((photo: any): Photo => ({
@@ -352,6 +356,7 @@ class PhotoSearchModal extends Modal {
 	query: string;
 	photos: Photo[] = [];
 	loading = false;
+	searchInput: HTMLInputElement;
 
 	constructor(app: App, plugin: PhotoSearchPlugin, query: string) {
 		super(app);
@@ -363,37 +368,87 @@ class PhotoSearchModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 
-		contentEl.createEl('h2', { text: `Photo Search: "${this.query}"` });
+		// Add search input field
+		const searchContainer = contentEl.createEl('div', { cls: 'search-container' });
+		searchContainer.style.marginBottom = '15px';
+		searchContainer.style.display = 'flex';
+		searchContainer.style.gap = '10px';
 
-		const loadingEl = contentEl.createEl('div', { text: 'Searching for photos...' });
+		this.searchInput = searchContainer.createEl('input', { 
+			type: 'text',
+			value: this.query,
+			cls: 'search-input'
+		});
+		this.searchInput.style.flex = '1';
+
+		const searchButton = searchContainer.createEl('button', { text: 'Search' });
 		
-		this.searchPhotos(loadingEl);
+		const performSearch = () => {
+			this.query = this.searchInput.value.trim();
+			const resultsContainer = contentEl.querySelector('.results-container') as HTMLElement;
+			if (resultsContainer) {
+				resultsContainer.empty();
+				this.displayLoadingState(resultsContainer);
+				this.searchAndDisplayPhotos(resultsContainer);
+			}
+		};
+
+		searchButton.addEventListener('click', performSearch);
+		this.searchInput.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') performSearch();
+		});
+
+		// AI toggle control
+		const searchControls = contentEl.createEl('div', { cls: 'search-controls' });
+		searchControls.style.marginBottom = '15px';
+		
+		const aiToggle = searchControls.createEl('div', { cls: 'ai-toggle' });
+		aiToggle.style.display = 'flex';
+		aiToggle.style.alignItems = 'center';
+		aiToggle.style.gap = '10px';
+
+		const toggle = aiToggle.createEl('input', { type: 'checkbox' });
+		toggle.type = 'checkbox';
+		toggle.checked = this.plugin.settings.includeAiImages;
+		
+		const label = aiToggle.createEl('span', { text: 'Include AI-generated images' });
+
+		const resultsContainer = contentEl.createEl('div', { cls: 'results-container' }) as HTMLElement;
+		this.displayLoadingState(resultsContainer);
+		this.searchAndDisplayPhotos(resultsContainer);
+
+		toggle.addEventListener('change', async (e) => {
+			this.plugin.settings.includeAiImages = toggle.checked;
+			await this.plugin.saveSettings();
+			resultsContainer.empty();
+			this.displayLoadingState(resultsContainer);
+			this.searchAndDisplayPhotos(resultsContainer);
+		});
 	}
 
-	async searchPhotos(loadingEl: HTMLElement) {
-		this.loading = true;
-		
+	displayLoadingState(container: HTMLElement) {
+		container.createEl('div', { text: 'Searching for photos...' });
+	}
+
+	async searchAndDisplayPhotos(container: HTMLElement) {
 		try {
 			this.photos = await this.plugin.searchPhotos(this.query);
-			loadingEl.remove();
-			this.displayPhotos();
+			container.empty();
+			this.displayPhotos(container);
 		} catch (error) {
-			loadingEl.setText('Error searching for photos. Please check your API keys.');
+			container.empty();
+			container.createEl('div', { text: 'Error searching for photos. Please check your API keys.' });
 			console.error('Search error:', error);
 		}
-		
-		this.loading = false;
 	}
 
-	displayPhotos() {
-		const { contentEl } = this;
-		
+	displayPhotos(container: HTMLElement = this.contentEl) {
 		if (this.photos.length === 0) {
-			contentEl.createEl('p', { text: 'No photos found. Try a different search term.' });
+			container.createEl('p', { text: 'No photos found. Try a different search term.' });
 			return;
 		}
 
-		const gridEl = contentEl.createEl('div', { cls: 'photo-grid' });
+		const gridEl = container.createEl('div', { cls: 'photo-grid' });
 		gridEl.style.display = 'grid';
 		gridEl.style.gridTemplateColumns = 'repeat(auto-fill, minmax(200px, 1fr))';
 		gridEl.style.gap = '10px';
@@ -565,6 +620,16 @@ class PhotoSearchSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.saveMetadata)
 				.onChange(async (value) => {
 					this.plugin.settings.saveMetadata = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Include AI-Generated Images')
+			.setDesc('Allow AI-generated images in search results')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.includeAiImages)
+				.onChange(async (value) => {
+					this.plugin.settings.includeAiImages = value;
 					await this.plugin.saveSettings();
 				}));
 	}
