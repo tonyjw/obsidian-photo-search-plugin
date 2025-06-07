@@ -224,7 +224,155 @@ export default class PhotoSearchPlugin extends Plugin {
 		new CustomSearchModal(this.app, this).open();
 	}
 
+	// URL detection methods
+	detectPhotoURL(input: string): { provider: string; id: string } | null {
+		const trimmedInput = input.trim();
+		
+		// Remove common URL artifacts and parameters
+		const cleanedInput = trimmedInput.split('?')[0].split('#')[0];
+		
+		// Pexels URL patterns
+		// https://www.pexels.com/photo/photo-name-123456/
+		// https://www.pexels.com/photo/photo-name-123456
+		const pexelsMatch = cleanedInput.match(/pexels\.com\/photo\/[^\/]+-(\d+)\/?$/);
+		if (pexelsMatch) {
+			return { provider: 'pexels', id: pexelsMatch[1] };
+		}
+
+		// Unsplash URL patterns
+		// https://unsplash.com/photos/abc123xyz
+		// https://unsplash.com/photos/photo-name-abc123xyz
+		// https://unsplash.com/@photographer/abc123xyz
+		const unsplashMatch = cleanedInput.match(/unsplash\.com\/(?:photos\/(?:[^\/]+-)?|@[^\/]+\/)([a-zA-Z0-9_-]+)\/?$/);
+		if (unsplashMatch) {
+			return { provider: 'unsplash', id: unsplashMatch[1] };
+		}
+
+		// Pixabay URL patterns
+		// https://pixabay.com/photos/photo-name-123456/
+		// https://pixabay.com/en/photos/photo-name-123456/
+		// https://pixabay.com/photos/photo-name-123456
+		const pixabayMatch = cleanedInput.match(/pixabay\.com\/(?:[a-z]{2}\/)?photos\/[^\/]+-(\d+)\/?$/);
+		if (pixabayMatch) {
+			return { provider: 'pixabay', id: pixabayMatch[1] };
+		}
+
+		return null;
+	}
+
+	async fetchPhotoByURL(provider: string, id: string): Promise<Photo | null> {
+		try {
+			switch (provider) {
+				case 'pexels':
+					return await this.fetchPexelsPhoto(id);
+				case 'unsplash':
+					return await this.fetchUnsplashPhoto(id);
+				case 'pixabay':
+					return await this.fetchPixabayPhoto(id);
+				default:
+					return null;
+			}
+		} catch (error) {
+			console.error(`Error fetching ${provider} photo ${id}:`, error);
+			return null;
+		}
+	}
+
+	async fetchPexelsPhoto(id: string): Promise<Photo | null> {
+		if (!this.settings.pexelsApiKey) {
+			throw new Error('Pexels API key not configured');
+		}
+
+		const response = await requestUrl({
+			url: `https://api.pexels.com/v1/photos/${id}`,
+			headers: {
+				'Authorization': this.settings.pexelsApiKey
+			}
+		});
+
+		const photo = response.json;
+		return {
+			id: `pexels-${photo.id}`,
+			url: photo.url,
+			previewUrl: photo.src.medium,
+			downloadUrl: this.settings.imageSize === 'original' ? photo.src.original : (photo.src[this.settings.imageSize] || photo.src.medium),
+			photographer: photo.photographer,
+			source: 'Pexels',
+			tags: photo.alt ? photo.alt.split(' ') : [],
+			description: photo.alt,
+			width: photo.width,
+			height: photo.height,
+			isAiGenerated: photo.ai_generated || false
+		};
+	}
+
+	async fetchUnsplashPhoto(id: string): Promise<Photo | null> {
+		if (!this.settings.unsplashApiKey) {
+			throw new Error('Unsplash API key not configured');
+		}
+
+		const response = await requestUrl({
+			url: `https://api.unsplash.com/photos/${id}`,
+			headers: {
+				'Authorization': `Client-ID ${this.settings.unsplashApiKey}`
+			}
+		});
+
+		const photo = response.json;
+		return {
+			id: `unsplash-${photo.id}`,
+			url: photo.links.html,
+			previewUrl: photo.urls.small,
+			downloadUrl: this.settings.imageSize === 'original' ? photo.urls.raw : (photo.urls[this.settings.imageSize] || photo.urls.regular),
+			photographer: photo.user.name,
+			source: 'Unsplash',
+			tags: photo.tags ? photo.tags.map((tag: any) => tag.title) : [],
+			description: photo.description || photo.alt_description,
+			width: photo.width,
+			height: photo.height,
+			isAiGenerated: undefined  // Unsplash doesn't provide explicit AI generation status
+		};
+	}
+
+	async fetchPixabayPhoto(id: string): Promise<Photo | null> {
+		if (!this.settings.pixabayApiKey) {
+			throw new Error('Pixabay API key not configured');
+		}
+
+		const response = await requestUrl({
+			url: `https://pixabay.com/api/?key=${this.settings.pixabayApiKey}&id=${id}`
+		});
+
+		const photos = response.json.hits;
+		if (photos.length === 0) {
+			return null;
+		}
+
+		const photo = photos[0];
+		return {
+			id: `pixabay-${photo.id}`,
+			url: photo.pageURL,
+			previewUrl: photo.previewURL,
+			downloadUrl: this.settings.imageSize === 'original' ? photo.largeImageURL : (photo.webformatURL),
+			photographer: photo.user,
+			source: 'Pixabay',
+			tags: photo.tags.split(', '),
+			description: photo.tags,
+			width: photo.imageWidth,
+			height: photo.imageHeight,
+			isAiGenerated: undefined  // Pixabay uses filtering but doesn't provide explicit status in response
+		};
+	}
+
 	async searchPhotos(query: string): Promise<Photo[]> {
+		// Check if the query is a URL from one of our supported providers
+		const urlInfo = this.detectPhotoURL(query);
+		if (urlInfo) {
+			const photo = await this.fetchPhotoByURL(urlInfo.provider, urlInfo.id);
+			return photo ? [photo] : [];
+		}
+
+		// Regular search across all providers
 		const results: Photo[] = [];
 		
 		// Search Pexels
@@ -645,9 +793,39 @@ class PhotoSearchModal extends Modal {
 				return;
 			}
 			
+			// Check if the query is a URL
+			const urlInfo = this.plugin.detectPhotoURL(this.query);
+			if (urlInfo) {
+				// Show URL detection feedback
+				container.empty();
+				const urlFeedback = container.createEl('div', { cls: 'url-detection-feedback' });
+				urlFeedback.style.padding = '15px';
+				urlFeedback.style.marginBottom = '15px';
+				urlFeedback.style.backgroundColor = 'rgba(76, 175, 80, 0.1)';
+				urlFeedback.style.border = '1px solid rgba(76, 175, 80, 0.3)';
+				urlFeedback.style.borderRadius = '6px';
+				urlFeedback.style.textAlign = 'center';
+				
+				urlFeedback.createEl('div', { 
+					text: `🔗 ${urlInfo.provider.charAt(0).toUpperCase() + urlInfo.provider.slice(1)} URL detected`,
+					attr: { style: 'font-weight: bold; color: #4CAF50; margin-bottom: 5px;' }
+				});
+				urlFeedback.createEl('div', { 
+					text: `Fetching specific photo instead of searching...`,
+					attr: { style: 'font-size: 0.9em; color: var(--text-muted);' }
+				});
+			}
+			
 			this.photos = await this.plugin.searchPhotos(this.query);
 			
-			container.empty();
+			// Only clear container if we didn't show URL feedback
+			if (!urlInfo) {
+				container.empty();
+			} else {
+				// Remove only the loading state, keep the URL feedback
+				const loadingEl = container.querySelector('.loading-state');
+				if (loadingEl) loadingEl.remove();
+			}
 			this.displayPhotos(container);
 		} catch (error) {
 			console.error('Detailed search error:', error);
@@ -658,6 +836,22 @@ class PhotoSearchModal extends Modal {
 
 	displayPhotos(container: HTMLElement = this.contentEl) {
 		if (this.photos.length === 0) {
+			// Check if this was a URL query that failed
+			const urlInfo = this.plugin.detectPhotoURL(this.query);
+			
+			if (urlInfo) {
+				// URL was detected but photo not found
+				container.createEl('div', { 
+					text: `❌ Photo not found at the ${urlInfo.provider.charAt(0).toUpperCase() + urlInfo.provider.slice(1)} URL`,
+					attr: { style: 'text-align: center; padding: 20px; color: #f44336; font-weight: bold;' }
+				});
+				container.createEl('p', { 
+					text: 'The photo may have been removed, the URL might be incorrect, or you may need to configure the appropriate API key.',
+					attr: { style: 'text-align: center; padding: 0 20px 20px; color: var(--text-muted); font-size: 0.9em;' }
+				});
+				return;
+			}
+			
 			// Check if this is due to no API keys or genuinely no results
 			const hasApiKeys = this.plugin.settings.pexelsApiKey || 
 							  this.plugin.settings.unsplashApiKey || 

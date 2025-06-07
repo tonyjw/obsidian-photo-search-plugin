@@ -6,9 +6,12 @@ Search and download free licensed photos from Pexels, Unsplash, and Pixabay dire
 
 - 🔍 **Text Selection Search**: Highlight any text and search for photos instantly
 - 🖼️ **Multi-Source Integration**: Searches Pexels, Unsplash, and Pixabay simultaneously
+- 🔗 **Direct URL Import**: Paste photo URLs to fetch specific images instead of searching
 - 👀 **Visual Browser**: Grid view to browse and preview photos
 - 💾 **One-Click Save**: Downloads photos with proper attribution metadata
 - 🎯 **Flexible Search**: Custom search option for manual queries
+- 🤖 **AI Detection**: Visual indicators for AI-generated images with filtering options
+- 📊 **Rich Metadata**: Includes dimensions, file size, print size calculations, and AI status
 
 ## Installation
 
@@ -48,6 +51,18 @@ Search and download free licensed photos from Pexels, Unsplash, and Pixabay dire
 1. Command Palette (Ctrl+P) → "Search photos with custom query"
 2. Enter search terms
 3. Browse and save photos
+
+### Method 3: Direct URL Import 🆕
+1. Copy a photo URL from Pexels, Unsplash, or Pixabay
+2. Use either command and paste the URL
+3. The plugin will automatically detect the URL and fetch that specific photo instead of searching
+
+**Supported URL formats:**
+- Pexels: `https://www.pexels.com/photo/photo-name-123456/`
+- Unsplash: `https://unsplash.com/photos/abc123xyz` or `https://unsplash.com/@photographer/abc123xyz`
+- Pixabay: `https://pixabay.com/photos/photo-name-123456/` or `https://pixabay.com/en/photos/photo-name-123456/`
+
+URLs with parameters (like `?utm_source=...`) are automatically cleaned and will work correctly.
 
 ## Attribution
 
