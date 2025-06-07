@@ -1,89 +1,34 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, TFile } from 'obsidian';
 
-// Interface definitions
 interface PhotoSearchSettings {
 	pexelsApiKey: string;
 	unsplashApiKey: string;
 	pixabayApiKey: string;
-	savePath: string;
-	thumbnailSize: number;
-	maxResults: number;
-}
-
-interface PhotoResult {
-	id: string;
-	url: string;
-	downloadUrl: string;
-	photographer: string;
-	photographerUrl?: string;
-	source: 'pexels' | 'unsplash' | 'pixabay';
-	alt?: string;
-	originalUrl: string;
-	license: string;
-	searchTerms?: string;
-	width: number;
-	height: number;
-}
-
-interface PexelsResponse {
-	photos: Array<{
-		id: number;
-		url: string;
-		src: {
-			original: string;
-			large: string;
-			medium: string;
-		};
-		photographer: string;
-		photographer_url: string;
-		alt: string;
-	}>;
-}
-
-interface UnsplashResponse {
-	results: Array<{
-		id: string;
-		urls: {
-			raw: string;
-			full: string;
-			regular: string;
-		};
-		user: {
-			name: string;
-			links: {
-				html: string;
-			};
-		};
-		alt_description: string;
-		links: {
-			html: string;
-		};
-		width: number;
-		height: number;
-	}>;
-}
-
-interface PixabayResponse {
-	hits: Array<{
-		id: number;
-		webformatURL: string;
-		largeImageURL: string;
-		user: string;
-		pageURL: string;
-		tags: string;
-		imageWidth: number;
-		imageHeight: number;
-	}>;
+	saveLocation: string;
+	imageSize: string;
+	saveMetadata: boolean;
 }
 
 const DEFAULT_SETTINGS: PhotoSearchSettings = {
 	pexelsApiKey: '',
 	unsplashApiKey: '',
 	pixabayApiKey: '',
-	savePath: 'Images/PhotoSearch',
-	thumbnailSize: 200,
-	maxResults: 20
+	saveLocation: 'Images/PhotoSearch',
+	imageSize: 'medium',
+	saveMetadata: true
 };
+
+interface Photo {
+	id: string;
+	url: string;
+	downloadUrl: string;
+	photographer: string;
+	source: string;
+	tags: string[];
+	description?: string;
+	width: number;
+	height: number;
+}
 
 export default class PhotoSearchPlugin extends Plugin {
 	settings: PhotoSearchSettings;
@@ -91,44 +36,49 @@ export default class PhotoSearchPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
-		// Add ribbon icon
-		this.addRibbonIcon('image', 'Search Photos', () => {
-			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-			if (activeView) {
-				this.openCustomSearchModal(activeView);
-			} else {
-				new Notice('Please open a markdown file first');
-			}
-		});
-
-		// Add commands
+		// Command to search photos from selected text with improved header detection
 		this.addCommand({
-			id: 'search-photos-selected-text',
+			id: 'search-photos-from-selection',
 			name: 'Search photos from selected text',
 			editorCallback: (editor: Editor, view: MarkdownView) => {
-				const selectedText = editor.getSelection();
-				if (selectedText.trim()) {
-					this.openPhotoSearchModal(selectedText.trim(), view);
+				const searchText = this.getSelectedTextImproved(editor);
+				if (searchText) {
+					this.openPhotoSearchModal(searchText);
 				} else {
-					new Notice('Please select some text first');
+					new Notice('No text selected or found under cursor');
 				}
 			}
 		});
 
+		// Command for custom search
 		this.addCommand({
-			id: 'search-photos-custom-query',
+			id: 'search-photos-custom',
 			name: 'Search photos with custom query',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				this.openCustomSearchModal(view);
+			callback: () => {
+				this.openCustomSearchModal();
 			}
 		});
+
+		// Add context menu item for photo search
+		this.registerEvent(
+			this.app.workspace.on('editor-menu', (menu, editor, view) => {
+				const text = this.getSelectedTextImproved(editor);
+				if (text) {
+					menu.addItem((item) => {
+						item
+							.setTitle(`Search photos for "${text.substring(0, 20)}${text.length > 20 ? '...' : ''}"`)
+							.setIcon('image')
+							.onClick(() => this.openPhotoSearchModal(text));
+					});
+				}
+			})
+		);
 
 		// Add settings tab
 		this.addSettingTab(new PhotoSearchSettingTab(this.app, this));
 	}
 
 	onunload() {
-		// Cleanup if needed
 	}
 
 	async loadSettings() {
@@ -139,270 +89,344 @@ export default class PhotoSearchPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	openCustomSearchModal(view: MarkdownView) {
-		new CustomSearchModal(this.app, (query) => {
-			this.openPhotoSearchModal(query, view);
-		}).open();
+	// IMPROVED: Enhanced text selection with header support
+	getSelectedTextImproved(editor: Editor): string | null {
+		let selection = editor.getSelection();
+		
+		// If we have a selection, use it
+		if (selection && selection.trim().length > 0) {
+			return this.cleanSearchText(selection.trim());
+		}
+
+		// If no selection, try to get text from current line (including headers)
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		
+		// Check if current line is a header and extract header text
+		const headerMatch = line.match(/^(#{1,6})\s*(.+)$/);
+		if (headerMatch && headerMatch[2]) {
+			selection = headerMatch[2].trim(); // Extract text without # symbols
+		} else if (line.trim().length > 0) {
+			// If not a header but has content, use the whole line
+			selection = line.trim();
+		} else {
+			// Last resort: try to get word under cursor
+			selection = this.getWordUnderCursor(editor);
+		}
+		
+		return selection && selection.trim().length > 0 ? this.cleanSearchText(selection.trim()) : null;
 	}
 
-	openPhotoSearchModal(query: string, view: MarkdownView) {
-		new PhotoSearchModal(this.app, this, query, view).open();
+	// Helper method to get word under cursor
+	getWordUnderCursor(editor: Editor): string | null {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		
+		// Find word boundaries around cursor
+		let start = cursor.ch;
+		let end = cursor.ch;
+		
+		// Expand backwards
+		while (start > 0 && /\w/.test(line[start - 1])) {
+			start--;
+		}
+		
+		// Expand forwards
+		while (end < line.length && /\w/.test(line[end])) {
+			end++;
+		}
+		
+		const word = line.substring(start, end).trim();
+		return word.length > 0 ? word : null;
 	}
 
-	async searchPhotos(query: string): Promise<PhotoResult[]> {
-		const results: PhotoResult[] = [];
-		const searchPromises: Promise<void>[] = [];
+	// Clean search text from markdown formatting
+	cleanSearchText(text: string): string {
+		return text
+			.replace(/[*_`~]/g, '') // Remove markdown formatting
+			.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Extract text from links
+			.replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1') // Extract alt text from images
+			.replace(/^#+\s*/, '') // Remove header symbols if any remain
+			.trim();
+	}
 
+	openPhotoSearchModal(query: string) {
+		new PhotoSearchModal(this.app, this, query).open();
+	}
+
+	openCustomSearchModal() {
+		new CustomSearchModal(this.app, this).open();
+	}
+
+	async searchPhotos(query: string): Promise<Photo[]> {
+		const results: Photo[] = [];
+		
 		// Search Pexels
 		if (this.settings.pexelsApiKey) {
-			searchPromises.push(this.searchPexels(query, results));
+			try {
+				const pexelsResults = await this.searchPexels(query);
+				results.push(...pexelsResults);
+			} catch (error) {
+				console.error('Error searching Pexels:', error);
+			}
 		}
 
 		// Search Unsplash
 		if (this.settings.unsplashApiKey) {
-			searchPromises.push(this.searchUnsplash(query, results));
+			try {
+				const unsplashResults = await this.searchUnsplash(query);
+				results.push(...unsplashResults);
+			} catch (error) {
+				console.error('Error searching Unsplash:', error);
+			}
 		}
 
 		// Search Pixabay
 		if (this.settings.pixabayApiKey) {
-			searchPromises.push(this.searchPixabay(query, results));
+			try {
+				const pixabayResults = await this.searchPixabay(query);
+				results.push(...pixabayResults);
+			} catch (error) {
+				console.error('Error searching Pixabay:', error);
+			}
 		}
 
-		if (searchPromises.length === 0) {
-			new Notice('Please configure at least one API key in settings');
-			return [];
-		}
-
-		await Promise.allSettled(searchPromises);
-		
-		// Shuffle and limit results
-		const shuffled = results.sort(() => 0.5 - Math.random());
-		return shuffled.slice(0, this.settings.maxResults);
+		return results;
 	}
 
-	async searchPexels(query: string, results: PhotoResult[]) {
-		try {
-			const response = await requestUrl({
-				url: `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=15`,
-				headers: {
-					'Authorization': this.settings.pexelsApiKey
-				}
-			});
+	async searchPexels(query: string): Promise<Photo[]> {
+		const response = await requestUrl({
+			url: `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=20`,
+			headers: {
+				'Authorization': this.settings.pexelsApiKey
+			}
+		});
 
-			const data: PexelsResponse = response.json;
-			
-			data.photos.forEach(photo => {
-				results.push({
-					id: photo.id.toString(),
-					url: photo.src.medium,
-					downloadUrl: photo.src.large,
-					photographer: photo.photographer,
-					photographerUrl: photo.photographer_url,
-					source: 'pexels',
-					alt: photo.alt,
-					originalUrl: photo.url,
-					license: 'Free to use',
-					searchTerms: query,
-					width: 0,
-					height: 0
-				});
-			});
-		} catch (error) {
-			console.error('Pexels search error:', error);
-		}
+		return response.json.photos.map((photo: any): Photo => ({
+			id: `pexels-${photo.id}`,
+			url: photo.url,
+			downloadUrl: photo.src[this.settings.imageSize] || photo.src.medium,
+			photographer: photo.photographer,
+			source: 'Pexels',
+			tags: photo.alt ? photo.alt.split(' ') : [],
+			description: photo.alt,
+			width: photo.width,
+			height: photo.height
+		}));
 	}
 
-	async searchUnsplash(query: string, results: PhotoResult[]) {
-		try {
-			const response = await requestUrl({
-				url: `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=15`,
-				headers: {
-					'Authorization': `Client-ID ${this.settings.unsplashApiKey}`
-				}
-			});
+	async searchUnsplash(query: string): Promise<Photo[]> {
+		const response = await requestUrl({
+			url: `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=20`,
+			headers: {
+				'Authorization': `Client-ID ${this.settings.unsplashApiKey}`
+			}
+		});
 
-			const data: UnsplashResponse = response.json;
-			
-			data.results.forEach(photo => {
-				results.push({
-					id: photo.id,
-					url: photo.urls.regular,
-					downloadUrl: photo.urls.full,
-					photographer: photo.user.name,
-					photographerUrl: photo.user.links.html,
-					source: 'unsplash',
-					alt: photo.alt_description,
-					originalUrl: photo.links.html,
-					license: 'Unsplash License',
-					searchTerms: query,
-					width: photo.width,
-					height: photo.height
-				});
-			});
-		} catch (error) {
-			console.error('Unsplash search error:', error);
-		}
+		return response.json.results.map((photo: any): Photo => ({
+			id: `unsplash-${photo.id}`,
+			url: photo.links.html,
+			downloadUrl: photo.urls[this.settings.imageSize] || photo.urls.regular,
+			photographer: photo.user.name,
+			source: 'Unsplash',
+			tags: photo.tags ? photo.tags.map((tag: any) => tag.title) : [],
+			description: photo.description || photo.alt_description,
+			width: photo.width,
+			height: photo.height
+		}));
 	}
 
-	async searchPixabay(query: string, results: PhotoResult[]) {
-		try {
-			const response = await requestUrl({
-				url: `https://pixabay.com/api/?key=${this.settings.pixabayApiKey}&q=${encodeURIComponent(query)}&image_type=photo&per_page=15`
-			});
+	async searchPixabay(query: string): Promise<Photo[]> {
+		const response = await requestUrl({
+			url: `https://pixabay.com/api/?key=${this.settings.pixabayApiKey}&q=${encodeURIComponent(query)}&image_type=photo&per_page=20`
+		});
 
-			const data: PixabayResponse = response.json;
-			
-			data.hits.forEach(photo => {
-				results.push({
-					id: photo.id.toString(),
-					url: photo.webformatURL,
-					downloadUrl: photo.largeImageURL,
-					photographer: photo.user,
-					source: 'pixabay',
-					alt: photo.tags,
-					originalUrl: photo.pageURL,
-					license: 'Pixabay License',
-					searchTerms: query,
-					width: photo.imageWidth,
-					height: photo.imageHeight
-				});
-			});
-		} catch (error) {
-			console.error('Pixabay search error:', error);
-		}
+		return response.json.hits.map((photo: any): Photo => ({
+			id: `pixabay-${photo.id}`,
+			url: photo.pageURL,
+			downloadUrl: photo.webformatURL,
+			photographer: photo.user,
+			source: 'Pixabay',
+			tags: photo.tags.split(', '),
+			description: photo.tags,
+			width: photo.imageWidth,
+			height: photo.imageHeight
+		}));
 	}
 
-	async savePhoto(photoData: PhotoResult, activeView: MarkdownView) {
+	async savePhoto(photo: Photo, searchQuery: string) {
 		try {
-			// Ensure save directory exists
-			const saveDir = this.settings.savePath;
-			if (!await this.app.vault.adapter.exists(saveDir)) {
-				await this.app.vault.createFolder(saveDir);
+			// Create directory if it doesn't exist
+			const folder = this.settings.saveLocation;
+			if (!await this.app.vault.adapter.exists(folder)) {
+				await this.app.vault.createFolder(folder);
 			}
 
-			// Download the image
-			const response = await requestUrl({
-				url: photoData.downloadUrl,
-				method: 'GET'
-			});
+			// Download image
+			const response = await requestUrl({ url: photo.downloadUrl });
+			const imageData = response.arrayBuffer;
 
 			// Generate filename
-			const cleanPhotographer = photoData.photographer.replace(/[^a-zA-Z0-9]/g, '_');
-			const timestamp = Date.now();
-			const extension = photoData.downloadUrl.includes('.jpg') ? 'jpg' : 'png';
-			const filename = `${cleanPhotographer}_${timestamp}.${extension}`;
-			const imagePath = `${saveDir}/${filename}`;
+			const extension = photo.downloadUrl.split('.').pop()?.split('?')[0] || 'jpg';
+			const filename = `${searchQuery.replace(/[^a-zA-Z0-9]/g, '_')}_${photo.id}.${extension}`;
+			const imagePath = `${folder}/${filename}`;
 
-			// Save image to vault
-			await this.app.vault.createBinary(imagePath, response.arrayBuffer);
+			// Save image
+			await this.app.vault.createBinary(imagePath, imageData);
 
-			// Get current editor and cursor position
-			const editor = activeView.editor;
-			const cursor = editor.getCursor();
-			
-			// Create the content to insert
-			const insertContent = this.createInsertContent(photoData, imagePath);
-			
-			// Find the end of the current line
-			const currentLine = cursor.line;
-			const lineContent = editor.getLine(currentLine);
-			
-			// Insert content after current line
-			const insertPosition = {
-				line: currentLine + 1,
-				ch: 0
-			};
-			
-			// Add proper spacing
-			let contentToInsert = insertContent;
-			if (lineContent.trim() !== '') {
-				contentToInsert = '\n' + insertContent;
+			// Save metadata if enabled
+			if (this.settings.saveMetadata) {
+				const metadataContent = `# Photo Metadata
+
+**Source:** ${photo.source}
+**Photographer:** ${photo.photographer}
+**Original URL:** ${photo.url}
+**Search Query:** ${searchQuery}
+**Tags:** ${photo.tags.join(', ')}
+**Dimensions:** ${photo.width} x ${photo.height}
+${photo.description ? `**Description:** ${photo.description}` : ''}
+
+## Attribution
+Photo by ${photo.photographer} on ${photo.source}: ${photo.url}
+`;
+
+				const metadataPath = `${folder}/${filename.replace(/\.[^.]+$/, '_metadata.md')}`;
+				await this.app.vault.create(metadataPath, metadataContent);
 			}
-			
-			editor.setCursor(currentLine, lineContent.length);
-			editor.replaceSelection(contentToInsert);
-			
-			// Position cursor after inserted content
-			const newLines = insertContent.split('\n').length;
-			editor.setCursor(currentLine + newLines + 1, 0);
-			
-			new Notice('Photo inserted successfully!');
-			
+
+			new Notice(`Photo saved to ${imagePath}`);
+			return imagePath;
 		} catch (error) {
 			console.error('Error saving photo:', error);
-			new Notice('Failed to save photo: ' + error.message);
+			new Notice('Error saving photo. Check console for details.');
 		}
-	}
-
-	createInsertContent(photoData: PhotoResult, imagePath: string): string {
-		const thumbnailSize = this.settings.thumbnailSize;
-		
-		// Create thumbnail with link to original file
-		const thumbnailMarkdown = `[![${photoData.alt || 'Photo'}|${thumbnailSize}](${imagePath})](${imagePath})`;
-		
-		// Create attribution link
-		const attributionLink = photoData.photographerUrl 
-			? `[${photoData.photographer}](${photoData.photographerUrl})`
-			: photoData.photographer;
-		
-		// Create source link
-		const sourceText = photoData.source.charAt(0).toUpperCase() + photoData.source.slice(1);
-		const sourceLink = `[${sourceText}](${photoData.originalUrl})`;
-		
-		// Create metadata block using callout format
-		const metadataBlock = `> [!info] Photo Details
-> - **Photographer:** ${attributionLink}
-> - **Source:** ${sourceLink}
-> - **License:** ${photoData.license}
-> - **Downloaded:** ${new Date().toISOString().split('T')[0]}
-> - **Search Terms:** ${photoData.searchTerms || 'N/A'}`;
-
-		return `${thumbnailMarkdown}\n\n${metadataBlock}\n`;
 	}
 }
 
-// Custom Search Modal for entering search terms
-class CustomSearchModal extends Modal {
-	onSubmit: (query: string) => void;
+class PhotoSearchModal extends Modal {
+	plugin: PhotoSearchPlugin;
+	query: string;
+	photos: Photo[] = [];
+	loading = false;
 
-	constructor(app: App, onSubmit: (query: string) => void) {
+	constructor(app: App, plugin: PhotoSearchPlugin, query: string) {
 		super(app);
-		this.onSubmit = onSubmit;
+		this.plugin = plugin;
+		this.query = query;
 	}
 
 	onOpen() {
 		const { contentEl } = this;
+		contentEl.empty();
+
+		contentEl.createEl('h2', { text: `Photo Search: "${this.query}"` });
+
+		const loadingEl = contentEl.createEl('div', { text: 'Searching for photos...' });
+		
+		this.searchPhotos(loadingEl);
+	}
+
+	async searchPhotos(loadingEl: HTMLElement) {
+		this.loading = true;
+		
+		try {
+			this.photos = await this.plugin.searchPhotos(this.query);
+			loadingEl.remove();
+			this.displayPhotos();
+		} catch (error) {
+			loadingEl.setText('Error searching for photos. Please check your API keys.');
+			console.error('Search error:', error);
+		}
+		
+		this.loading = false;
+	}
+
+	displayPhotos() {
+		const { contentEl } = this;
+		
+		if (this.photos.length === 0) {
+			contentEl.createEl('p', { text: 'No photos found. Try a different search term.' });
+			return;
+		}
+
+		const gridEl = contentEl.createEl('div', { cls: 'photo-grid' });
+		gridEl.style.display = 'grid';
+		gridEl.style.gridTemplateColumns = 'repeat(auto-fill, minmax(200px, 1fr))';
+		gridEl.style.gap = '10px';
+		gridEl.style.maxHeight = '400px';
+		gridEl.style.overflowY = 'auto';
+
+		this.photos.forEach(photo => {
+			const photoEl = gridEl.createEl('div', { cls: 'photo-item' });
+			photoEl.style.border = '1px solid var(--background-modifier-border)';
+			photoEl.style.borderRadius = '4px';
+			photoEl.style.padding = '10px';
+			photoEl.style.cursor = 'pointer';
+
+			const imgEl = photoEl.createEl('img');
+			imgEl.src = photo.downloadUrl;
+			imgEl.style.width = '100%';
+			imgEl.style.height = '150px';
+			imgEl.style.objectFit = 'cover';
+			imgEl.style.borderRadius = '4px';
+
+			const infoEl = photoEl.createEl('div');
+			infoEl.style.marginTop = '5px';
+			infoEl.style.fontSize = '12px';
+
+			infoEl.createEl('div', { text: `By ${photo.photographer}` });
+			infoEl.createEl('div', { text: photo.source });
+
+			photoEl.addEventListener('click', () => {
+				this.plugin.savePhoto(photo, this.query);
+				this.close();
+			});
+		});
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
+	}
+}
+
+class CustomSearchModal extends Modal {
+	plugin: PhotoSearchPlugin;
+
+	constructor(app: App, plugin: PhotoSearchPlugin) {
+		super(app);
+		this.plugin = plugin;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+
 		contentEl.createEl('h2', { text: 'Search Photos' });
 
-		const inputEl = contentEl.createEl('input', {
-			type: 'text',
-			placeholder: 'Enter search terms (e.g., "sunset mountains")'
-		});
-		
+		const inputEl = contentEl.createEl('input', { type: 'text', placeholder: 'Enter search terms...' });
 		inputEl.style.width = '100%';
+		inputEl.style.marginBottom = '10px';
 		inputEl.style.padding = '8px';
-		inputEl.style.marginBottom = '16px';
-		
+
 		const buttonEl = contentEl.createEl('button', { text: 'Search' });
 		buttonEl.style.padding = '8px 16px';
-		
-		const submitSearch = () => {
+
+		const searchAction = () => {
 			const query = inputEl.value.trim();
 			if (query) {
-				this.onSubmit(query);
 				this.close();
-			} else {
-				new Notice('Please enter search terms');
+				this.plugin.openPhotoSearchModal(query);
 			}
 		};
-		
-		buttonEl.addEventListener('click', submitSearch);
-		inputEl.addEventListener('keypress', (e) => {
+
+		buttonEl.addEventListener('click', searchAction);
+		inputEl.addEventListener('keydown', (e) => {
 			if (e.key === 'Enter') {
-				submitSearch();
+				searchAction();
 			}
 		});
-		
+
 		inputEl.focus();
 	}
 
@@ -412,101 +436,6 @@ class CustomSearchModal extends Modal {
 	}
 }
 
-// Photo Search Results Modal
-class PhotoSearchModal extends Modal {
-	plugin: PhotoSearchPlugin;
-	query: string;
-	activeView: MarkdownView;
-	photos: PhotoResult[] = [];
-
-	constructor(app: App, plugin: PhotoSearchPlugin, query: string, activeView: MarkdownView) {
-		super(app);
-		this.plugin = plugin;
-		this.query = query;
-		this.activeView = activeView;
-	}
-
-	async onOpen() {
-		const { contentEl } = this;
-		contentEl.createEl('h2', { text: `Photo Search: "${this.query}"` });
-		
-		const loadingEl = contentEl.createEl('div', { text: 'Searching...' });
-		
-		try {
-			this.photos = await this.plugin.searchPhotos(this.query);
-			loadingEl.remove();
-			
-			if (this.photos.length === 0) {
-				contentEl.createEl('div', { text: 'No photos found. Try different search terms.' });
-				return;
-			}
-			
-			this.displayPhotos();
-		} catch (error) {
-			loadingEl.textContent = 'Error searching photos: ' + error.message;
-		}
-	}
-
-	displayPhotos() {
-		const { contentEl } = this;
-		
-		const gridEl = contentEl.createEl('div');
-		gridEl.style.display = 'grid';
-		gridEl.style.gridTemplateColumns = 'repeat(auto-fill, minmax(200px, 1fr))';
-		gridEl.style.gap = '16px';
-		gridEl.style.maxHeight = '500px';
-		gridEl.style.overflowY = 'auto';
-		gridEl.style.padding = '16px 0';
-		
-		this.photos.forEach(photo => {
-			const photoEl = gridEl.createEl('div');
-			photoEl.style.border = '1px solid var(--background-modifier-border)';
-			photoEl.style.borderRadius = '8px';
-			photoEl.style.overflow = 'hidden';
-			photoEl.style.cursor = 'pointer';
-			photoEl.style.transition = 'transform 0.2s';
-			
-			photoEl.addEventListener('mouseenter', () => {
-				photoEl.style.transform = 'scale(1.02)';
-			});
-			
-			photoEl.addEventListener('mouseleave', () => {
-				photoEl.style.transform = 'scale(1)';
-			});
-			
-			const imgEl = photoEl.createEl('img');
-			imgEl.src = photo.url;
-			imgEl.style.width = '100%';
-			imgEl.style.height = '150px';
-			imgEl.style.objectFit = 'cover';
-			
-			const infoEl = photoEl.createEl('div');
-			infoEl.style.padding = '8px';
-			
-			const photographerEl = infoEl.createEl('div');
-			photographerEl.textContent = `By: ${photo.photographer}`;
-			photographerEl.style.fontSize = '12px';
-			photographerEl.style.marginBottom = '4px';
-			
-			const sourceEl = infoEl.createEl('div');
-			sourceEl.textContent = photo.source.toUpperCase();
-			sourceEl.style.fontSize = '10px';
-			sourceEl.style.color = 'var(--text-muted)';
-			
-			photoEl.addEventListener('click', () => {
-				this.plugin.savePhoto(photo, this.activeView);
-				this.close();
-			});
-		});
-	}
-
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
-	}
-}
-
-// Settings Tab
 class PhotoSearchSettingTab extends PluginSettingTab {
 	plugin: PhotoSearchPlugin;
 
@@ -521,11 +450,9 @@ class PhotoSearchSettingTab extends PluginSettingTab {
 
 		containerEl.createEl('h2', { text: 'Photo Search Settings' });
 
-		// API Keys Section
+		// API Keys section
 		containerEl.createEl('h3', { text: 'API Keys' });
-		containerEl.createEl('p', { 
-			text: 'Get free API keys from the respective services. You need at least one API key to search for photos.'
-		});
+		containerEl.createEl('p', { text: 'Get free API keys from the photo services:' });
 
 		new Setting(containerEl)
 			.setName('Pexels API Key')
@@ -542,7 +469,7 @@ class PhotoSearchSettingTab extends PluginSettingTab {
 			.setName('Unsplash API Key')
 			.setDesc('Get your free API key from unsplash.com/developers (50 requests/hour)')
 			.addText(text => text
-				.setPlaceholder('Enter your Unsplash Access Key')
+				.setPlaceholder('Enter your Unsplash API key')
 				.setValue(this.plugin.settings.unsplashApiKey)
 				.onChange(async (value) => {
 					this.plugin.settings.unsplashApiKey = value;
@@ -560,41 +487,40 @@ class PhotoSearchSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// Download Settings Section
+		// Settings section
 		containerEl.createEl('h3', { text: 'Download Settings' });
 
 		new Setting(containerEl)
 			.setName('Save Location')
-			.setDesc('Folder where downloaded photos will be saved')
+			.setDesc('Folder where photos will be saved')
 			.addText(text => text
 				.setPlaceholder('Images/PhotoSearch')
-				.setValue(this.plugin.settings.savePath)
+				.setValue(this.plugin.settings.saveLocation)
 				.onChange(async (value) => {
-					this.plugin.settings.savePath = value || 'Images/PhotoSearch';
+					this.plugin.settings.saveLocation = value;
 					await this.plugin.saveSettings();
 				}));
 
 		new Setting(containerEl)
-			.setName('Thumbnail Size')
-			.setDesc('Size of the thumbnail image inserted (in pixels, 50-800)')
-			.addText(text => text
-				.setPlaceholder('200')
-				.setValue(String(this.plugin.settings.thumbnailSize))
+			.setName('Image Size')
+			.setDesc('Size of images to download')
+			.addDropdown(dropdown => dropdown
+				.addOption('small', 'Small')
+				.addOption('medium', 'Medium')
+				.addOption('large', 'Large')
+				.setValue(this.plugin.settings.imageSize)
 				.onChange(async (value) => {
-					const size = parseInt(value) || 200;
-					this.plugin.settings.thumbnailSize = Math.max(50, Math.min(800, size));
+					this.plugin.settings.imageSize = value;
 					await this.plugin.saveSettings();
 				}));
 
 		new Setting(containerEl)
-			.setName('Max Results')
-			.setDesc('Maximum number of photos to show in search results')
-			.addText(text => text
-				.setPlaceholder('20')
-				.setValue(String(this.plugin.settings.maxResults))
+			.setName('Save Metadata')
+			.setDesc('Save photo metadata and attribution information')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.saveMetadata)
 				.onChange(async (value) => {
-					const max = parseInt(value) || 20;
-					this.plugin.settings.maxResults = Math.max(5, Math.min(50, max));
+					this.plugin.settings.saveMetadata = value;
 					await this.plugin.saveSettings();
 				}));
 	}
