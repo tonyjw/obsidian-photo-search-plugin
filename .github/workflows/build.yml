@@ -35,7 +35,6 @@ jobs:
         path: |
           main.js
           manifest.json
-          styles.css
         retention-days: 30
 
   release:
@@ -81,7 +80,6 @@ jobs:
           plugin-release.zip
           main.js
           manifest.json
-          styles.css
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
