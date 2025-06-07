@@ -1,0 +1,44 @@
+Testing URL detection patterns:
+
+URL: https://www.pexels.com/photo/beautiful-sunset-123456/
+Result: pexels - 123456
+---
+URL: https://www.pexels.com/photo/mountain-lake-789012
+Result: pexels - 789012
+---
+URL: https://www.pexels.com/photo/sunset-mountains-123456/?utm_source=test
+Result: pexels - 123456
+---
+URL: https://unsplash.com/photos/abc123xyz
+Result: unsplash - abc123xyz
+---
+URL: https://unsplash.com/photos/mountain-sunset-abc123xyz
+Result: unsplash - abc123xyz
+---
+URL: https://unsplash.com/@photographer/def456ghi
+Result: unsplash - def456ghi
+---
+URL: https://unsplash.com/photos/abc123xyz?utm_source=test&utm_medium=referral
+Result: unsplash - abc123xyz
+---
+URL: https://pixabay.com/photos/sunset-mountains-123456/
+Result: pixabay - 123456
+---
+URL: https://pixabay.com/en/photos/lake-reflection-789012/
+Result: pixabay - 789012
+---
+URL: https://pixabay.com/photos/nature-landscape-456789
+Result: pixabay - 456789
+---
+URL: https://pixabay.com/photos/beautiful-sunset-123456/?utm_source=test
+Result: pixabay - 123456
+---
+URL: random search text
+Result: No match
+---
+URL: mountains sunset
+Result: No match
+---
+URL: https://example.com/not-a-photo-url
+Result: No match
+---

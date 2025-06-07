@@ -64,6 +64,16 @@ Search and download free licensed photos from Pexels, Unsplash, and Pixabay dire
 
 URLs with parameters (like `?utm_source=...`) are automatically cleaned and will work correctly.
 
+### Tabbed Interface 🆕
+Search results are organized in a tabbed interface by provider:
+- **Provider Tabs**: Switch between Pexels, Unsplash, and Pixabay results
+- **Result Counts**: Each tab shows the number of photos found from that provider  
+- **Smart Defaults**: Opens with your configured default provider (set in settings)
+- **Disabled States**: Tabs are disabled for providers without API keys configured
+- **Individual Results**: Browse results from each provider separately
+
+**Default Provider Setting**: Configure which provider tab opens by default in Settings → Photo Search Plugin → Default Provider.
+
 ## Attribution
 
 All photos are automatically saved with metadata files containing:

@@ -8,6 +8,7 @@ interface PhotoSearchSettings {
 	imageSize: string;
 	saveMetadata: boolean;
 	includeAiImages: boolean;
+	defaultProvider: string;
 }
 
 const DEFAULT_SETTINGS: PhotoSearchSettings = {
@@ -17,7 +18,8 @@ const DEFAULT_SETTINGS: PhotoSearchSettings = {
 	saveLocation: 'Images/PhotoSearch',
 	imageSize: 'medium',  // options: 'small', 'medium', 'large', 'original'
 	saveMetadata: true,
-	includeAiImages: false
+	includeAiImages: false,
+	defaultProvider: 'unsplash'
 };
 
 interface Photo {
@@ -86,6 +88,63 @@ export default class PhotoSearchPlugin extends Plugin {
 			}
 			.ai-badge.unknown {
 				background: linear-gradient(135deg, #ffa726, #ffb74d);
+			}
+			.provider-tabs {
+				display: flex;
+				border-bottom: 1px solid var(--background-modifier-border);
+				margin-bottom: 15px;
+				gap: 2px;
+			}
+			.provider-tab {
+				padding: 8px 16px;
+				cursor: pointer;
+				border: 1px solid var(--background-modifier-border);
+				border-bottom: none;
+				background: var(--background-secondary);
+				color: var(--text-muted);
+				font-size: 13px;
+				font-weight: 500;
+				border-radius: 6px 6px 0 0;
+				transition: all 0.2s;
+				position: relative;
+			}
+			.provider-tab:hover {
+				background: var(--background-modifier-hover);
+				color: var(--text-normal);
+			}
+			.provider-tab.active {
+				background: var(--background-primary);
+				color: var(--text-normal);
+				border-bottom: 1px solid var(--background-primary);
+				margin-bottom: -1px;
+				z-index: 1;
+			}
+			.provider-tab.disabled {
+				opacity: 0.5;
+				cursor: not-allowed;
+				color: var(--text-faint);
+			}
+			.provider-tab.disabled:hover {
+				background: var(--background-secondary);
+				color: var(--text-faint);
+			}
+			.provider-tab-count {
+				margin-left: 6px;
+				padding: 2px 6px;
+				background: var(--background-modifier-border);
+				border-radius: 10px;
+				font-size: 11px;
+				font-weight: bold;
+			}
+			.provider-tab.active .provider-tab-count {
+				background: var(--interactive-accent);
+				color: white;
+			}
+			.tab-content {
+				display: none;
+			}
+			.tab-content.active {
+				display: block;
 			}
 		`;
 		const style = document.createElement('style');
@@ -666,13 +725,16 @@ class PhotoSearchModal extends Modal {
 	plugin: PhotoSearchPlugin;
 	query: string;
 	photos: Photo[] = [];
+	photosByProvider: { [key: string]: Photo[] } = {};
 	loading = false;
 	searchInput: HTMLInputElement;
+	activeTab: string = 'unsplash';
 
 	constructor(app: App, plugin: PhotoSearchPlugin, query: string) {
 		super(app);
 		this.plugin = plugin;
 		this.query = query;
+		this.activeTab = plugin.settings.defaultProvider;
 	}
 
 	onOpen() {
@@ -818,6 +880,13 @@ class PhotoSearchModal extends Modal {
 			
 			this.photos = await this.plugin.searchPhotos(this.query);
 			
+			// Group photos by provider
+			this.photosByProvider = {
+				'pexels': this.photos.filter(p => p.source === 'Pexels'),
+				'unsplash': this.photos.filter(p => p.source === 'Unsplash'),
+				'pixabay': this.photos.filter(p => p.source === 'Pixabay')
+			};
+			
 			// Only clear container if we didn't show URL feedback
 			if (!urlInfo) {
 				container.empty();
@@ -868,6 +937,89 @@ class PhotoSearchModal extends Modal {
 			return;
 		}
 
+		// Create provider tabs
+		const tabsContainer = container.createEl('div', { cls: 'provider-tabs' });
+		
+		const providers = [
+			{ key: 'pexels', name: 'Pexels', apiKey: this.plugin.settings.pexelsApiKey },
+			{ key: 'unsplash', name: 'Unsplash', apiKey: this.plugin.settings.unsplashApiKey },
+			{ key: 'pixabay', name: 'Pixabay', apiKey: this.plugin.settings.pixabayApiKey }
+		];
+
+		providers.forEach(provider => {
+			const tab = tabsContainer.createEl('div', { 
+				cls: 'provider-tab',
+				text: provider.name
+			});
+			
+			const count = this.photosByProvider[provider.key]?.length || 0;
+			if (count > 0) {
+				tab.createEl('span', { cls: 'provider-tab-count', text: count.toString() });
+			}
+			
+			// Mark tab as disabled if no API key configured
+			if (!provider.apiKey) {
+				tab.addClass('disabled');
+				tab.title = `Configure ${provider.name} API key in settings to use this provider`;
+			} else {
+				tab.addEventListener('click', () => {
+					this.activeTab = provider.key;
+					this.showTabContent(container);
+				});
+			}
+			
+			// Set active tab
+			if (this.activeTab === provider.key) {
+				tab.addClass('active');
+			}
+		});
+
+		// Create tab content containers
+		const contentContainer = container.createEl('div', { cls: 'tab-contents' });
+		
+		providers.forEach(provider => {
+			const tabContent = contentContainer.createEl('div', { 
+				cls: 'tab-content',
+				attr: { 'data-provider': provider.key }
+			});
+			
+			if (this.activeTab === provider.key) {
+				tabContent.addClass('active');
+			}
+			
+			this.renderPhotosGrid(tabContent, this.photosByProvider[provider.key] || []);
+		});
+	}
+
+	showTabContent(container: HTMLElement) {
+		// Update tab active states
+		const tabs = container.querySelectorAll('.provider-tab');
+		tabs.forEach(tab => {
+			tab.removeClass('active');
+			if (tab.textContent?.toLowerCase().includes(this.activeTab)) {
+				tab.addClass('active');
+			}
+		});
+		
+		// Update content active states
+		const contents = container.querySelectorAll('.tab-content');
+		contents.forEach(content => {
+			content.removeClass('active');
+			if (content.getAttribute('data-provider') === this.activeTab) {
+				content.addClass('active');
+			}
+		});
+	}
+
+	renderPhotosGrid(container: HTMLElement, photos: Photo[]) {
+		if (photos.length === 0) {
+			container.createEl('p', { 
+				text: 'No photos found from this provider.',
+				attr: { style: 'text-align: center; padding: 20px; color: var(--text-muted);' }
+			});
+			return;
+		}
+
 		const gridEl = container.createEl('div', { cls: 'photo-grid' });
 		gridEl.style.display = 'grid';
 		gridEl.style.gridTemplateColumns = 'repeat(auto-fill, minmax(200px, 1fr))';
@@ -875,7 +1027,7 @@ class PhotoSearchModal extends Modal {
 		gridEl.style.maxHeight = '400px';
 		gridEl.style.overflowY = 'auto';
 
-		this.photos.forEach(photo => {
+		photos.forEach(photo => {
 			const photoEl = gridEl.createEl('div', { cls: 'photo-item' });
 			photoEl.style.border = '1px solid var(--background-modifier-border)';
 			photoEl.style.borderRadius = '4px';
@@ -1063,6 +1215,19 @@ class PhotoSearchSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.includeAiImages)
 				.onChange(async (value) => {
 					this.plugin.settings.includeAiImages = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Default Provider')
+			.setDesc('Default photo provider to show when opening search results')
+			.addDropdown(dropdown => dropdown
+				.addOption('unsplash', 'Unsplash')
+				.addOption('pexels', 'Pexels')
+				.addOption('pixabay', 'Pixabay')
+				.setValue(this.plugin.settings.defaultProvider)
+				.onChange(async (value) => {
+					this.plugin.settings.defaultProvider = value;
 					await this.plugin.saveSettings();
 				}));
 	}
