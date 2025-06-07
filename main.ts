@@ -36,16 +36,48 @@ export default class PhotoSearchPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
-		// Command to search photos from selected text with improved header detection
+			// Add CSS styles for photo metadata
+		const css = `
+			.photo-metadata {
+				background-color: rgba(145, 185, 255, 0.1);
+				border-radius: 4px;
+				padding: 10px;
+				margin: 10px 0;
+				display: flex;
+				gap: 15px;
+				align-items: start;
+			}
+			.photo-thumbnail {
+				flex-shrink: 0;
+			}
+			.photo-thumbnail img {
+				border-radius: 4px;
+			}
+			.photo-info {
+				font-size: 0.9em;
+				color: var(--text-muted);
+				white-space: pre-line;
+			}
+			.photo-info a {
+				color: var(--text-muted);
+				text-decoration: underline;
+			}
+		`;
+		const style = document.createElement('style');
+		style.textContent = css;
+		document.head.appendChild(style);
+
+		// Command to search photos from selected text with improved header and page title detection
 		this.addCommand({
 			id: 'search-photos-from-selection',
 			name: 'Search photos from selected text',
 			editorCallback: (editor: Editor, view: MarkdownView) => {
-				const searchText = this.getSelectedTextImproved(editor);
+				if (!(view instanceof MarkdownView)) return;
+				const searchText = view instanceof MarkdownView ? this.getSelectedTextImproved(editor, view) : null;
 				if (searchText) {
 					this.openPhotoSearchModal(searchText);
 				} else {
-					new Notice('No text selected or found under cursor');
+					new Notice('No text selected or found under cursor or page title');
 				}
 			}
 		});
@@ -62,7 +94,7 @@ export default class PhotoSearchPlugin extends Plugin {
 		// Add context menu item for photo search
 		this.registerEvent(
 			this.app.workspace.on('editor-menu', (menu, editor, view) => {
-				const text = this.getSelectedTextImproved(editor);
+				const text = view instanceof MarkdownView ? this.getSelectedTextImproved(editor, view) : null;
 				if (text) {
 					menu.addItem((item) => {
 						item
@@ -89,10 +121,9 @@ export default class PhotoSearchPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	// IMPROVED: Enhanced text selection with header support
-	getSelectedTextImproved(editor: Editor): string | null {
+	// IMPROVED: Enhanced text selection with header and page title support
+	getSelectedTextImproved(editor: Editor, view?: MarkdownView): string | null {
 		let selection = editor.getSelection();
-		
 		// If we have a selection, use it
 		if (selection && selection.trim().length > 0) {
 			return this.cleanSearchText(selection.trim());
@@ -101,7 +132,6 @@ export default class PhotoSearchPlugin extends Plugin {
 		// If no selection, try to get text from current line (including headers)
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
-		
 		// Check if current line is a header and extract header text
 		const headerMatch = line.match(/^(#{1,6})\s*(.+)$/);
 		if (headerMatch && headerMatch[2]) {
@@ -113,8 +143,17 @@ export default class PhotoSearchPlugin extends Plugin {
 			// Last resort: try to get word under cursor
 			selection = this.getWordUnderCursor(editor);
 		}
-		
-		return selection && selection.trim().length > 0 ? this.cleanSearchText(selection.trim()) : null;
+
+		if (selection && selection.trim().length > 0) {
+			return this.cleanSearchText(selection.trim());
+		}
+
+		// If still nothing, use the page title (file name without extension)
+		if (view && view.file) {
+			const fileName = view.file.basename;
+			return this.cleanSearchText(fileName);
+		}
+		return null;
 	}
 
 	// Helper method to get word under cursor
@@ -274,27 +313,30 @@ export default class PhotoSearchPlugin extends Plugin {
 			// Save image
 			await this.app.vault.createBinary(imagePath, imageData);
 
-			// Save metadata if enabled
-			if (this.settings.saveMetadata) {
-				const metadataContent = `# Photo Metadata
+			// Get active editor
+			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (activeView) {
+				const editor = activeView.editor;
+				const cursor = editor.getCursor();
 
-**Source:** ${photo.source}
-**Photographer:** ${photo.photographer}
-**Original URL:** ${photo.url}
-**Search Query:** ${searchQuery}
-**Tags:** ${photo.tags.join(', ')}
-**Dimensions:** ${photo.width} x ${photo.height}
-${photo.description ? `**Description:** ${photo.description}` : ''}
+				const metadataBlock = `
 
-## Attribution
-Photo by ${photo.photographer} on ${photo.source}: ${photo.url}
+![[${imagePath}|300]]
+
+> [!metadata]
+> - **Source**: ${photo.source}
+> - **Photographer**: ${photo.photographer}
+> - **Original**: [View on ${photo.source}](${photo.url})
+> - **Search Query**: "${searchQuery}"${photo.description ? `\n> - **Description**: ${photo.description}` : ''}
+> - **Tags**: ${photo.tags.join(', ')}
+
 `;
 
-				const metadataPath = `${folder}/${filename.replace(/\.[^.]+$/, '_metadata.md')}`;
-				await this.app.vault.create(metadataPath, metadataContent);
+				// Insert metadata at cursor position
+				editor.replaceRange(metadataBlock, cursor);
 			}
 
-			new Notice(`Photo saved to ${imagePath}`);
+			new Notice(`Photo saved and metadata inserted`);
 			return imagePath;
 		} catch (error) {
 			console.error('Error saving photo:', error);
