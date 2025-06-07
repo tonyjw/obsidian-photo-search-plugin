@@ -31,6 +31,7 @@ interface Photo {
 	description?: string;
 	width: number;
 	height: number;
+	isAiGenerated?: boolean;
 }
 
 export default class PhotoSearchPlugin extends Plugin {
@@ -64,6 +65,27 @@ export default class PhotoSearchPlugin extends Plugin {
 			.photo-info a {
 				color: var(--text-muted);
 				text-decoration: underline;
+			}
+			.photo-item {
+				position: relative;
+			}
+			.ai-badge {
+				position: absolute;
+				top: 8px;
+				right: 8px;
+				background: linear-gradient(135deg, #ff6b6b, #ff8e8e);
+				color: white;
+				padding: 2px 6px;
+				border-radius: 10px;
+				font-size: 10px;
+				font-weight: bold;
+				text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+				box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+				z-index: 10;
+				pointer-events: none;
+			}
+			.ai-badge.unknown {
+				background: linear-gradient(135deg, #ffa726, #ffb74d);
 			}
 		`;
 		const style = document.createElement('style');
@@ -258,7 +280,8 @@ export default class PhotoSearchPlugin extends Plugin {
 				tags: photo.alt ? photo.alt.split(' ') : [],
 				description: photo.alt,
 				width: photo.width,
-				height: photo.height
+				height: photo.height,
+				isAiGenerated: photo.ai_generated || false
 			}));
 	}
 
@@ -280,7 +303,8 @@ export default class PhotoSearchPlugin extends Plugin {
 			tags: photo.tags ? photo.tags.map((tag: any) => tag.title) : [],
 			description: photo.description || photo.alt_description,
 			width: photo.width,
-			height: photo.height
+			height: photo.height,
+			isAiGenerated: undefined  // Unsplash doesn't provide explicit AI generation status
 		}));
 	}
 
@@ -299,7 +323,8 @@ export default class PhotoSearchPlugin extends Plugin {
 			tags: photo.tags.split(', '),
 			description: photo.tags,
 			width: photo.imageWidth,
-			height: photo.imageHeight
+			height: photo.imageHeight,
+			isAiGenerated: undefined  // Pixabay uses filtering but doesn't provide explicit status in response
 		}));
 	}
 
@@ -410,6 +435,9 @@ export default class PhotoSearchPlugin extends Plugin {
 			// Calculate maximum print size at professional quality
 			const maxPrintSize = this.calculateMaxPrintSize(photo.width, photo.height);
 			
+			// Format AI generation status for display
+			const aiStatus = this.formatAiStatus(photo.isAiGenerated, photo.source);
+			
 			// Use the actual filename that was saved
 			const metadataBlock = `
 
@@ -423,6 +451,7 @@ export default class PhotoSearchPlugin extends Plugin {
 > - **Dimensions**: ${photo.width} × ${photo.height} pixels
 > - **File Size**: ${fileSizeFormatted}
 > - **Max Print Size**: ${maxPrintSize}
+> - **AI Generated**: ${aiStatus}
 
 `;
 			editor.replaceRange(metadataBlock, cursor);
@@ -464,6 +493,24 @@ export default class PhotoSearchPlugin extends Plugin {
 		const maxHeightCm = (maxHeightInches * 2.54).toFixed(1);
 		
 		return `${widthFormatted}" × ${heightFormatted}" (${maxWidthCm} × ${maxHeightCm} cm) at 300 DPI`;
+	}
+
+	// Helper method to format AI generation status
+	formatAiStatus(isAiGenerated: boolean | undefined, source: string): string {
+		if (isAiGenerated === true) {
+			return 'Yes';
+		} else if (isAiGenerated === false) {
+			return 'No';
+		} else {
+			// For sources that don't provide explicit AI status
+			if (source === 'Unsplash' && !this.settings.includeAiImages) {
+				return 'No (filtered)';
+			} else if (source === 'Pixabay' && !this.settings.includeAiImages) {
+				return 'No (filtered)';
+			} else {
+				return 'Unknown';
+			}
+		}
 	}
 }
 
@@ -647,6 +694,18 @@ class PhotoSearchModal extends Modal {
 			imgEl.style.height = '150px';
 			imgEl.style.objectFit = 'cover';
 			imgEl.style.borderRadius = '4px';
+
+			// Add AI generation indicator
+			if (photo.isAiGenerated === true) {
+				const aiBadge = photoEl.createEl('div', { cls: 'ai-badge', text: 'AI' });
+				aiBadge.title = 'AI Generated Image';
+			} else if (photo.isAiGenerated === undefined && photo.source !== 'Pexels') {
+				// Show "unknown" indicator for Unsplash and Pixabay when includeAiImages is enabled
+				if (this.plugin.settings.includeAiImages) {
+					const aiBadge = photoEl.createEl('div', { cls: 'ai-badge unknown', text: '?' });
+					aiBadge.title = 'AI status unknown - ' + photo.source + ' does not provide explicit AI detection';
+				}
+			}
 
 			const infoEl = photoEl.createEl('div');
 			infoEl.style.marginTop = '5px';
