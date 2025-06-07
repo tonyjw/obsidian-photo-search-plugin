@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, Modal, Notice, TFile, normalizePath } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, Modal, Notice, TFile, normalizePath, Editor } from 'obsidian';
 
 interface PhotoSearchSettings {
 	pexelsApiKey: string;
@@ -42,7 +42,7 @@ export default class PhotoSearchPlugin extends Plugin {
 			editorCallback: (editor) => {
 				const selection = editor.getSelection();
 				if (selection) {
-					this.searchPhotos(selection);
+					this.searchPhotos(selection, editor);
 				} else {
 					new Notice('Please select text to search for photos');
 				}
@@ -86,7 +86,7 @@ export default class PhotoSearchPlugin extends Plugin {
 		}).open();
 	}
 
-	async searchPhotos(query: string) {
+	async searchPhotos(query: string, editor?: Editor) {
 		if (!this.hasValidApiKeys()) {
 			new Notice('Please configure API keys in plugin settings');
 			return;
@@ -97,7 +97,7 @@ export default class PhotoSearchPlugin extends Plugin {
 		try {
 			const results = await this.fetchPhotos(query);
 			if (results.length > 0) {
-				new PhotoBrowserModal(this.app, this, results, query).open();
+				new PhotoBrowserModal(this.app, this, results, query, editor).open();
 			} else {
 				new Notice('No photos found for this search term');
 			}
@@ -199,7 +199,7 @@ export default class PhotoSearchPlugin extends Plugin {
 		}));
 	}
 
-	async savePhoto(photo: PhotoResult, searchQuery: string): Promise<string> {
+	async savePhoto(photo: PhotoResult, searchQuery: string, editor: Editor): Promise<void> {
 		try {
 			// Download image
 			const response = await fetch(photo.downloadUrl);
@@ -217,39 +217,20 @@ export default class PhotoSearchPlugin extends Plugin {
 			// Save file
 			await this.app.vault.adapter.writeBinary(filepath, buffer);
 			
-			// Create metadata note
-			const metadataContent = this.generateMetadata(photo, searchQuery, filename);
-			const metadataPath = normalizePath(`${this.settings.saveLocation}/${sanitizedQuery}_${photo.source}_${photo.id}_metadata.md`);
-			await this.app.vault.adapter.write(metadataPath, metadataContent);
+			// Insert metadata and thumbnail into the document
+			const metadataContent = `![Thumbnail](${filepath})\n\n# Photo Metadata\n\n- **Source**: ${photo.source.charAt(0).toUpperCase() + photo.source.slice(1)}\n- **Search Query**: ${searchQuery}\n- **Dimensions**: ${photo.width} × ${photo.height}\n- **Description**: ${photo.description}\n- **Photographer**: [${photo.photographer}](${photo.photographerUrl})\n- **Source URL**: [View Original](${photo.url})\n\n---\n*Downloaded on ${new Date().toISOString().split('T')[0]} via Photo Search Plugin*`;
 			
-			return filepath;
+				// Adjust insertion logic to handle header selection
+				const cursor = editor.getCursor();
+				const nextLine = cursor.line + 1 < editor.lineCount() ? cursor.line + 1 : cursor.line;
+				editor.replaceRange(`\n\n${metadataContent}`, { line: nextLine, ch: 0 });
+			
+			new Notice(`Photo saved and metadata inserted successfully!`);
 		} catch (error) {
 			console.error('Error saving photo:', error);
+			new Notice('Error saving photo. Check console for details.');
 			throw error;
 		}
-	}
-
-	generateMetadata(photo: PhotoResult, searchQuery: string, filename: string): string {
-		return `# Photo Metadata
-
-## Image Details
-- **File**: ${filename}
-- **Source**: ${photo.source.charAt(0).toUpperCase() + photo.source.slice(1)}
-- **Search Query**: ${searchQuery}
-- **Dimensions**: ${photo.width} × ${photo.height}
-- **Description**: ${photo.description}
-
-## Attribution
-- **Photographer**: [${photo.photographer}](${photo.photographerUrl})
-- **Source URL**: [View Original](${photo.url})
-- **Tags**: ${photo.tags.join(', ')}
-
-## License Information
-This image is from ${photo.source} and is available under their respective licensing terms. Please verify current licensing requirements before commercial use.
-
----
-*Downloaded on ${new Date().toISOString().split('T')[0]} via Photo Search Plugin*
-`;
 	}
 }
 
@@ -312,12 +293,14 @@ class PhotoBrowserModal extends Modal {
 	photos: PhotoResult[];
 	searchQuery: string;
 	currentIndex: number = 0;
+	editor?: Editor;
 
-	constructor(app: App, plugin: PhotoSearchPlugin, photos: PhotoResult[], searchQuery: string) {
+	constructor(app: App, plugin: PhotoSearchPlugin, photos: PhotoResult[], searchQuery: string, editor?: Editor) {
 		super(app);
 		this.plugin = plugin;
 		this.photos = photos;
 		this.searchQuery = searchQuery;
+		this.editor = editor;
 	}
 
 	onOpen() {
@@ -395,7 +378,7 @@ class PhotoBrowserModal extends Modal {
 				saveBtn.textContent = 'Saving...';
 
 				try {
-					await this.plugin.savePhoto(photo, this.searchQuery);
+					await this.plugin.savePhoto(photo, this.searchQuery, this.editor);
 					new Notice(`Photo saved successfully!`);
 					saveBtn.textContent = 'Saved ✓';
 					saveBtn.style.backgroundColor = 'var(--interactive-success)';
@@ -482,9 +465,14 @@ class PhotoSearchSettingTab extends PluginSettingTab {
 				.setPlaceholder('Images/PhotoSearch')
 				.setValue(this.plugin.settings.saveLocation)
 				.onChange(async (value) => {
-					this.plugin.settings.saveLocation = value || 'Images/PhotoSearch';
-					await this.plugin.saveSettings();
-					await this.plugin.createSaveDirectory();
+					try {
+						this.plugin.settings.saveLocation = value || 'Images/PhotoSearch';
+						await this.plugin.saveSettings();
+						await this.plugin.createSaveDirectory();
+					} catch (error) {
+						console.error('Error creating save directory:', error);
+						new Notice('Failed to create save directory. Check console for details.');
+					}
 				}));
 
 		new Setting(containerEl)
@@ -495,8 +483,13 @@ class PhotoSearchSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.resultsPerPage)
 				.setDynamicTooltip()
 				.onChange(async (value) => {
-					this.plugin.settings.resultsPerPage = value;
-					await this.plugin.saveSettings();
+					try {
+						this.plugin.settings.resultsPerPage = value;
+						await this.plugin.saveSettings();
+					} catch (error) {
+						console.error('Error saving results per page setting:', error);
+						new Notice('Failed to save results per page setting. Check console for details.');
+					}
 				}));
 
 		// Instructions section
