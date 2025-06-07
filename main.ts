@@ -451,10 +451,10 @@ class PhotoSearchSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Unsplash API Key')
-			.setDesc('Get your free API key at unsplash.com/developers')
+			.setName('Unsplash Access Key')
+			.setDesc('Get your free Access Key at unsplash.com/developers')
 			.addText(text => text
-				.setPlaceholder('Enter your Unsplash API key')
+				.setPlaceholder('Enter your Unsplash Access Key')
 				.setValue(this.plugin.settings.unsplashApiKey)
 				.onChange(async (value) => {
 					this.plugin.settings.unsplashApiKey = value;
