@@ -1,8 +1,8 @@
-# Development Workflow
+# Development Guide
 
 This plugin provides multiple development workflow options for faster iteration.
 
-## First Time Setup
+## 🚀 Quick Start (TL;DR)
 
 ```bash
 # 1. Clone and install
@@ -17,21 +17,33 @@ npm run dev:setup
 npm run dev:symlink  # Fastest (recommended)
 # OR
 npm run dev:watch    # Fallback if symlinks don't work
-```
 
-## Daily Development
-
-```bash
-# Start development server
+# 4. Start development
 npm run dev
 
-# Make changes to main.ts
-# Files auto-compile and sync to Obsidian
+# Make changes to main.ts - auto-compiles and syncs to Obsidian
 # Reload plugin in Obsidian to see changes
 ```
 
-## Quick Start (Recommended)
+---
 
+## 📋 Command Reference
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev:setup` | Interactive vault path configuration |
+| `npm run dev:symlink` | Create symlink for fastest development |
+| `npm run dev:watch` | Build + copy files automatically |
+| `npm run dev:copy` | Copy files only (no build) |
+| `npm run dev:unlink` | Remove symlink setup |
+| `npm run dev` | Start TypeScript compilation in watch mode |
+| `npm run build` | Production build |
+
+---
+
+## 🛠️ Development Workflows
+
+### Option 1: Symlink (Recommended)
 For the fastest development experience, use symlinks:
 
 ```bash
@@ -45,8 +57,7 @@ npm run dev
 # Just reload the plugin in Obsidian to see changes
 ```
 
-## Alternative: File Copying
-
+### Option 2: File Copying
 If symlinks don't work on your system:
 
 ```bash
@@ -54,19 +65,9 @@ If symlinks don't work on your system:
 npm run dev:watch
 ```
 
-## Available Commands
+---
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev:setup` | Interactive vault path configuration |
-| `npm run dev:symlink` | Create symlink for fastest development |
-| `npm run dev:watch` | Build + copy files automatically |
-| `npm run dev:copy` | Copy files only (no build) |
-| `npm run dev:unlink` | Remove symlink setup |
-| `npm run dev` | Start TypeScript compilation in watch mode |
-| `npm run build` | Production build |
-
-## Configuration Options
+## ⚙️ Configuration Options
 
 The setup script supports multiple configuration methods:
 
@@ -89,7 +90,9 @@ The setup script automatically detects vaults in common locations:
 
 Or you can specify a custom path during setup.
 
-## Development Process
+---
+
+## 🔄 Development Process
 
 1. **Setup**: Run `npm run dev:setup` to configure your vault path
 2. **Choose workflow**: Run `npm run dev:symlink` (recommended) or `npm run dev:watch`
@@ -99,14 +102,18 @@ Or you can specify a custom path during setup.
 6. **Reload**: Use Cmd+R in Obsidian or manually disable/enable the plugin
 7. **Iterate**: Repeat steps 3-6 for rapid development
 
-## Troubleshooting
+---
+
+## 🐛 Troubleshooting
 
 - **"No configuration found"**: Run `npm run dev:setup`
 - **Symlinks not working**: Use `npm run dev:watch` instead
 - **Wrong vault**: Re-run `npm run dev:setup` or edit `dev.config.local.js`
 - **Plugin not updating**: Reload plugin in Obsidian (Cmd+R or disable/enable)
 
-## Tips
+---
+
+## 💡 Development Tips
 
 - **Symlink approach** is fastest - changes are immediately reflected
 - **Integrated watch** (`dev:watch`) is the best fallback if symlinks don't work
