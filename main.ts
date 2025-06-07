@@ -123,36 +123,38 @@ export default class PhotoSearchPlugin extends Plugin {
 
 	// IMPROVED: Enhanced text selection with header and page title support
 	getSelectedTextImproved(editor: Editor, view?: MarkdownView): string | null {
-		let selection = editor.getSelection();
-		// If we have a selection, use it
-		if (selection && selection.trim().length > 0) {
-			return this.cleanSearchText(selection.trim());
+		// Get any selected text first
+		let selection = editor.getSelection().trim();
+		if (selection.length > 0) {
+			return this.cleanSearchText(selection);
 		}
 
-		// If no selection, try to get text from current line (including headers)
+		// Try to get text from current line (including headers)
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
-		// Check if current line is a header and extract header text
+		
+		// Check if current line is a header
 		const headerMatch = line.match(/^(#{1,6})\s*(.+)$/);
 		if (headerMatch && headerMatch[2]) {
-			selection = headerMatch[2].trim(); // Extract text without # symbols
-		} else if (line.trim().length > 0) {
-			// If not a header but has content, use the whole line
-			selection = line.trim();
-		} else {
-			// Last resort: try to get word under cursor
-			selection = this.getWordUnderCursor(editor);
+			return this.cleanSearchText(headerMatch[2].trim());
 		}
 
-		if (selection && selection.trim().length > 0) {
-			return this.cleanSearchText(selection.trim());
+		// If cursor is on a non-empty line
+		if (line.trim().length > 0) {
+			return this.cleanSearchText(line.trim());
 		}
 
-		// If still nothing, use the page title (file name without extension)
-		if (view && view.file) {
-			const fileName = view.file.basename;
-			return this.cleanSearchText(fileName);
+		// Try to get word under cursor
+		const wordUnderCursor = this.getWordUnderCursor(editor);
+		if (wordUnderCursor) {
+			return this.cleanSearchText(wordUnderCursor);
 		}
+
+		// Default fallback: use the page title
+		if (view?.file) {
+			return this.cleanSearchText(view.file.basename);
+		}
+
 		return null;
 	}
 
