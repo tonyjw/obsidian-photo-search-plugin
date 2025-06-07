@@ -7,8 +7,8 @@ Search and download free licensed photos from Pexels, Unsplash, and Pixabay dire
 - 🔍 **Text Selection Search**: Highlight any text and search for photos instantly
 - 🖼️ **Multi-Source Integration**: Searches Pexels, Unsplash, and Pixabay simultaneously
 - 🔗 **Direct URL Import**: Paste photo URLs to fetch specific images instead of searching
-- 👀 **Visual Browser**: Grid view to browse and preview photos
-- 💾 **One-Click Save**: Downloads photos with proper attribution metadata
+- 👀 **Click-to-Preview**: Click any photo for a large preview with select/cancel options
+- 💾 **Two-Step Selection**: Preview images first, then choose to save or go back
 - 🎯 **Flexible Search**: Custom search option for manual queries
 - 🤖 **AI Detection**: Visual indicators for AI-generated images with filtering options
 - 📊 **Rich Metadata**: Includes dimensions, file size, print size calculations, and AI status
@@ -73,6 +73,28 @@ Search results are organized in a tabbed interface by provider:
 - **Individual Results**: Browse results from each provider separately
 
 **Default Provider Setting**: Configure which provider tab opens by default in Settings → Photo Search Plugin → Default Provider.
+
+### Click-to-Preview Interface 🆕
+Enhanced photo selection with a two-step process:
+- **Click to Preview**: Click any photo thumbnail to see a large preview
+- **Action Buttons**: Choose "Select Image" to save or "Close" to go back
+- **Keyboard Shortcuts**: Press Escape to close the preview
+- **Background Click**: Click outside the preview to close without selecting
+- **Enhanced Info**: Preview shows photographer, dimensions, and source details
+
+This prevents accidental photo insertion and gives you time to evaluate images before saving them to your vault.
+
+## Recent Fixes ✅
+
+**v1.0.2** - Enhanced Click-to-Preview Interface
+- ✅ **New Two-Step Selection Process**: Click photos to preview first, then choose to save or cancel
+- ✅ **Enhanced Preview Overlay**: Large preview with action buttons (Close/Select Image)
+- ✅ **Multiple Exit Options**: Escape key, background click, or close button to cancel
+- ✅ **Improved User Experience**: No more accidental photo insertion - preview before deciding
+- ✅ Fixed default provider setting - now properly opens with your configured default provider
+- ✅ Enhanced tab switching logic with proper active states
+- ✅ Better memory management with proper cleanup on modal close
+- ✅ Improved DOM manipulation using standard APIs for better reliability
 
 ## Attribution
 

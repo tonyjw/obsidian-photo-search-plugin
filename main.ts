@@ -42,8 +42,19 @@ export default class PhotoSearchPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
-			// Add CSS styles for photo metadata
+			// Add CSS styles for enhanced photo browsing experience
 		const css = `
+			/* Modal sizing for better image browsing */
+			.modal.photo-search-modal {
+				max-width: 90vw !important;
+				max-height: 90vh !important;
+				width: 1200px !important;
+			}
+			.modal.photo-search-modal .modal-content {
+				max-height: 85vh !important;
+				overflow-y: auto;
+			}
+			
 			.photo-metadata {
 				background-color: rgba(145, 185, 255, 0.1);
 				border-radius: 4px;
@@ -68,26 +79,215 @@ export default class PhotoSearchPlugin extends Plugin {
 				color: var(--text-muted);
 				text-decoration: underline;
 			}
+			
+			/* Enhanced photo grid for better browsing */
+			.photo-grid {
+				display: grid !important;
+				grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)) !important;
+				gap: 15px !important;
+				max-height: 70vh !important;
+				overflow-y: auto !important;
+				padding: 10px !important;
+			}
+			
 			.photo-item {
 				position: relative;
+				border: 2px solid transparent !important;
+				border-radius: 8px !important;
+				padding: 12px !important;
+				cursor: pointer !important;
+				transition: all 0.3s ease !important;
+				background: var(--background-secondary) !important;
+				overflow: hidden;
 			}
+			
+			.photo-item:hover {
+				border-color: var(--interactive-accent) !important;
+				transform: translateY(-2px) !important;
+				box-shadow: 0 8px 25px rgba(0,0,0,0.15) !important;
+				background: var(--background-primary) !important;
+			}
+			
+			.photo-item img {
+				width: 100% !important;
+				height: 200px !important;
+				object-fit: cover !important;
+				border-radius: 6px !important;
+				transition: transform 0.3s ease !important;
+			}
+			
+			.photo-item:hover img {
+				transform: scale(1.02) !important;
+			}
+			
+			/* Large preview overlay with improved interaction */
+			.photo-preview-overlay {
+				position: fixed;
+				top: 0;
+				left: 0;
+				width: 100vw;
+				height: 100vh;
+				background: rgba(0, 0, 0, 0.85);
+				z-index: 1000;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				opacity: 0;
+				transition: opacity 0.3s ease;
+				pointer-events: none;
+				cursor: pointer;
+			}
+			
+			.photo-preview-overlay.show {
+				opacity: 1;
+				pointer-events: all;
+			}
+			
+			.photo-preview-container {
+				position: relative;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				max-width: 90vw;
+				max-height: 90vh;
+				cursor: default;
+			}
+			
+			.photo-preview-image {
+				max-width: 80vw;
+				max-height: 70vh;
+				border-radius: 12px;
+				box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+				transition: transform 0.3s ease;
+				transform: scale(0.9);
+				margin-bottom: 20px;
+			}
+			
+			.photo-preview-overlay.show .photo-preview-image {
+				transform: scale(1);
+			}
+			
+			.photo-preview-info {
+				display: flex;
+				gap: 20px;
+				margin-bottom: 20px;
+				color: white;
+				font-size: 14px;
+				text-align: center;
+			}
+			
+			.preview-photographer {
+				font-weight: 500;
+			}
+			
+			.preview-dimensions, .preview-source {
+				opacity: 0.8;
+			}
+			
+			.photo-preview-actions {
+				display: flex;
+				gap: 15px;
+			}
+			
+			.photo-preview-btn {
+				padding: 12px 24px;
+				border: none;
+				border-radius: 8px;
+				font-size: 14px;
+				font-weight: 500;
+				cursor: pointer;
+				transition: all 0.2s ease;
+				text-transform: uppercase;
+				letter-spacing: 0.5px;
+			}
+			
+			.close-btn {
+				background: rgba(255, 255, 255, 0.15);
+				color: white;
+				border: 1px solid rgba(255, 255, 255, 0.3);
+			}
+			
+			.close-btn:hover {
+				background: rgba(255, 255, 255, 0.25);
+				transform: translateY(-1px);
+			}
+			
+			.select-btn {
+				background: linear-gradient(135deg, #4caf50, #66bb6a);
+				color: white;
+				box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+			}
+			
+			.select-btn:hover {
+				background: linear-gradient(135deg, #45a049, #5cb85c);
+				transform: translateY(-1px);
+				box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
+			}
+			
+			/* Enhanced AI badges with better tooltips */
 			.ai-badge {
 				position: absolute;
-				top: 8px;
-				right: 8px;
+				top: 12px;
+				right: 12px;
 				background: linear-gradient(135deg, #ff6b6b, #ff8e8e);
 				color: white;
-				padding: 2px 6px;
-				border-radius: 10px;
-				font-size: 10px;
+				padding: 4px 8px;
+				border-radius: 12px;
+				font-size: 11px;
 				font-weight: bold;
 				text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-				box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-				z-index: 10;
-				pointer-events: none;
+				box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+				z-index: 15;
+				cursor: help;
+				transition: all 0.2s ease;
 			}
+			
+			.ai-badge:hover {
+				transform: scale(1.1);
+				box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+			}
+			
 			.ai-badge.unknown {
 				background: linear-gradient(135deg, #ffa726, #ffb74d);
+			}
+			
+			.ai-badge.no-ai {
+				background: linear-gradient(135deg, #4caf50, #66bb6a);
+			}
+			
+			/* Smooth scrollbar styling */
+			.photo-grid::-webkit-scrollbar {
+				width: 8px;
+			}
+			.photo-grid::-webkit-scrollbar-track {
+				background: var(--background-modifier-border);
+				border-radius: 4px;
+			}
+			.photo-grid::-webkit-scrollbar-thumb {
+				background: var(--text-muted);
+				border-radius: 4px;
+			}
+			.photo-grid::-webkit-scrollbar-thumb:hover {
+				background: var(--text-normal);
+			}
+			
+			/* Loading state styling */
+			.loading-state {
+				text-align: center;
+				padding: 40px;
+				color: var(--text-muted);
+				font-style: italic;
+			}
+			
+			/* Responsive adjustments */
+			@media (max-width: 768px) {
+				.modal.photo-search-modal {
+					width: 95vw !important;
+					max-width: 95vw !important;
+				}
+				.photo-grid {
+					grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important;
+				}
 			}
 			.provider-tabs {
 				display: flex;
@@ -729,12 +929,14 @@ class PhotoSearchModal extends Modal {
 	loading = false;
 	searchInput: HTMLInputElement;
 	activeTab: string = 'unsplash';
+	currentPreviewOverlay: HTMLElement | null = null;
 
 	constructor(app: App, plugin: PhotoSearchPlugin, query: string) {
 		super(app);
 		this.plugin = plugin;
 		this.query = query;
 		this.activeTab = plugin.settings.defaultProvider;
+		this.modalEl.addClass('photo-search-modal');
 	}
 
 	onOpen() {
@@ -800,7 +1002,10 @@ class PhotoSearchModal extends Modal {
 	}
 
 	displayLoadingState(container: HTMLElement) {
-		container.createEl('div', { text: 'Searching for photos...' });
+		const loadingEl = container.createEl('div', { 
+			cls: 'loading-state',
+			text: '🔍 Searching for photos...' 
+		});
 	}
 
 	async searchAndDisplayPhotos(container: HTMLElement) {
@@ -952,6 +1157,9 @@ class PhotoSearchModal extends Modal {
 				text: provider.name
 			});
 			
+			// Add data attribute to identify the provider
+			tab.setAttribute('data-provider', provider.key);
+			
 			const count = this.photosByProvider[provider.key]?.length || 0;
 			if (count > 0) {
 				tab.createEl('span', { cls: 'provider-tab-count', text: count.toString() });
@@ -995,18 +1203,18 @@ class PhotoSearchModal extends Modal {
 		// Update tab active states
 		const tabs = container.querySelectorAll('.provider-tab');
 		tabs.forEach(tab => {
-			tab.removeClass('active');
-			if (tab.textContent?.toLowerCase().includes(this.activeTab)) {
-				tab.addClass('active');
+			tab.classList.remove('active');
+			if (tab.getAttribute('data-provider') === this.activeTab) {
+				tab.classList.add('active');
 			}
 		});
 		
 		// Update content active states
 		const contents = container.querySelectorAll('.tab-content');
 		contents.forEach(content => {
-			content.removeClass('active');
+			content.classList.remove('active');
 			if (content.getAttribute('data-provider') === this.activeTab) {
-				content.addClass('active');
+				content.classList.add('active');
 			}
 		});
 	}
@@ -1021,53 +1229,152 @@ class PhotoSearchModal extends Modal {
 		}
 
 		const gridEl = container.createEl('div', { cls: 'photo-grid' });
-		gridEl.style.display = 'grid';
-		gridEl.style.gridTemplateColumns = 'repeat(auto-fill, minmax(200px, 1fr))';
-		gridEl.style.gap = '10px';
-		gridEl.style.maxHeight = '400px';
-		gridEl.style.overflowY = 'auto';
 
 		photos.forEach(photo => {
 			const photoEl = gridEl.createEl('div', { cls: 'photo-item' });
-			photoEl.style.border = '1px solid var(--background-modifier-border)';
-			photoEl.style.borderRadius = '4px';
-			photoEl.style.padding = '10px';
-			photoEl.style.cursor = 'pointer';
 
 			const imgEl = photoEl.createEl('img');
-			imgEl.src = photo.previewUrl;  // Use preview URL for the modal
-			imgEl.style.width = '100%';
-			imgEl.style.height = '150px';
-			imgEl.style.objectFit = 'cover';
-			imgEl.style.borderRadius = '4px';
+			imgEl.src = photo.previewUrl;
+			imgEl.alt = photo.description || `Photo by ${photo.photographer}`;
 
-			// Add AI generation indicator
+			// Enhanced AI generation indicators - only show when we have definitive information
 			if (photo.isAiGenerated === true) {
 				const aiBadge = photoEl.createEl('div', { cls: 'ai-badge', text: 'AI' });
-				aiBadge.title = 'AI Generated Image';
-			} else if (photo.isAiGenerated === undefined && photo.source !== 'Pexels') {
-				// Show "unknown" indicator for Unsplash and Pixabay when includeAiImages is enabled
-				if (this.plugin.settings.includeAiImages) {
-					const aiBadge = photoEl.createEl('div', { cls: 'ai-badge unknown', text: '?' });
-					aiBadge.title = 'AI status unknown - ' + photo.source + ' does not provide explicit AI detection';
-				}
+				aiBadge.title = '🤖 AI Generated Image\nThis image was created using artificial intelligence';
+			} else if (photo.isAiGenerated === false) {
+				const aiBadge = photoEl.createEl('div', { cls: 'ai-badge no-ai', text: '📷' });
+				aiBadge.title = '📷 Human Photographer\nThis image was taken by a human photographer';
 			}
+			// Note: No badge for unknown AI status - don't overwhelm users with warnings
 
 			const infoEl = photoEl.createEl('div');
-			infoEl.style.marginTop = '5px';
-			infoEl.style.fontSize = '12px';
+			infoEl.style.marginTop = '8px';
+			infoEl.style.fontSize = '13px';
+			infoEl.style.color = 'var(--text-muted)';
 
-			infoEl.createEl('div', { text: `By ${photo.photographer}` });
-			infoEl.createEl('div', { text: photo.source });
+			infoEl.createEl('div', { 
+				text: `📸 ${photo.photographer}`,
+				attr: { style: 'font-weight: 500; margin-bottom: 2px;' }
+			});
+			infoEl.createEl('div', { 
+				text: `📦 ${photo.source}`,
+				attr: { style: 'font-size: 11px; opacity: 0.8;' }
+			});
+			
+			// Add dimensions info for better browsing
+			if (photo.width && photo.height) {
+				infoEl.createEl('div', { 
+					text: `📐 ${photo.width}×${photo.height}`,
+					attr: { style: 'font-size: 11px; opacity: 0.6; margin-top: 2px;' }
+				});
+			}
 
+			// Add click to preview functionality (two-step process)
 			photoEl.addEventListener('click', () => {
-				this.plugin.savePhoto(photo, this.query);
-				this.close();
+				this.showImagePreview(photo.downloadUrl, photo.photographer, photo);
 			});
 		});
 	}
 
+	showImagePreview(imageUrl: string, photographer: string, photo: Photo) {
+		// Remove any existing preview
+		this.hideImagePreview();
+
+		const overlay = document.createElement('div');
+		overlay.className = 'photo-preview-overlay';
+		
+		// Create preview container
+		const previewContainer = document.createElement('div');
+		previewContainer.className = 'photo-preview-container';
+		
+		const img = document.createElement('img');
+		img.className = 'photo-preview-image';
+		img.src = imageUrl;
+		img.alt = `Photo by ${photographer}`;
+		
+		// Create action buttons container
+		const actionsContainer = document.createElement('div');
+		actionsContainer.className = 'photo-preview-actions';
+		
+		// Close button
+		const closeButton = document.createElement('button');
+		closeButton.className = 'photo-preview-btn close-btn';
+		closeButton.textContent = 'Close';
+		closeButton.addEventListener('click', (e) => {
+			e.stopPropagation();
+			this.hideImagePreview();
+		});
+		
+		// Select button
+		const selectButton = document.createElement('button');
+		selectButton.className = 'photo-preview-btn select-btn';
+		selectButton.textContent = 'Select Image';
+		selectButton.addEventListener('click', (e) => {
+			e.stopPropagation();
+			this.plugin.savePhoto(photo, this.query);
+			this.close();
+		});
+		
+		// Photo info
+		const infoContainer = document.createElement('div');
+		infoContainer.className = 'photo-preview-info';
+		infoContainer.innerHTML = `
+			<div class="preview-photographer">📸 ${photographer}</div>
+			<div class="preview-dimensions">${photo.width && photo.height ? `📐 ${photo.width}×${photo.height}` : ''}</div>
+			<div class="preview-source">📦 ${photo.source}</div>
+		`;
+		
+		actionsContainer.appendChild(closeButton);
+		actionsContainer.appendChild(selectButton);
+		
+		previewContainer.appendChild(img);
+		previewContainer.appendChild(infoContainer);
+		previewContainer.appendChild(actionsContainer);
+		
+		overlay.appendChild(previewContainer);
+		document.body.appendChild(overlay);
+		
+		// Store reference for cleanup
+		this.currentPreviewOverlay = overlay;
+		
+		// Close on overlay background click (not on container)
+		overlay.addEventListener('click', (e) => {
+			if (e.target === overlay) {
+				this.hideImagePreview();
+			}
+		});
+		
+		// Close on Escape key
+		const handleEscape = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') {
+				this.hideImagePreview();
+				document.removeEventListener('keydown', handleEscape);
+			}
+		};
+		document.addEventListener('keydown', handleEscape);
+		
+		// Trigger animation
+		requestAnimationFrame(() => {
+			overlay.classList.add('show');
+		});
+	}
+
+	hideImagePreview() {
+		if (this.currentPreviewOverlay) {
+			this.currentPreviewOverlay.classList.remove('show');
+			setTimeout(() => {
+				if (this.currentPreviewOverlay && this.currentPreviewOverlay.parentNode) {
+					this.currentPreviewOverlay.parentNode.removeChild(this.currentPreviewOverlay);
+					this.currentPreviewOverlay = null;
+				}
+			}, 300); // Match CSS transition duration
+		}
+	}
+
 	onClose() {
+		// Clean up any lingering preview overlay
+		this.hideImagePreview();
+		
 		const { contentEl } = this;
 		contentEl.empty();
 	}
