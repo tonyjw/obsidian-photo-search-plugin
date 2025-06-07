@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, TFile } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, TFile, normalizePath } from 'obsidian';
 
 interface PhotoSearchSettings {
 	pexelsApiKey: string;
@@ -15,7 +15,7 @@ const DEFAULT_SETTINGS: PhotoSearchSettings = {
 	unsplashApiKey: '',
 	pixabayApiKey: '',
 	saveLocation: 'Images/PhotoSearch',
-	imageSize: 'medium',
+	imageSize: 'medium',  // options: 'small', 'medium', 'large', 'original'
 	saveMetadata: true,
 	includeAiImages: false
 };
@@ -23,6 +23,7 @@ const DEFAULT_SETTINGS: PhotoSearchSettings = {
 interface Photo {
 	id: string;
 	url: string;
+	previewUrl: string;
 	downloadUrl: string;
 	photographer: string;
 	source: string;
@@ -250,7 +251,8 @@ export default class PhotoSearchPlugin extends Plugin {
 			.map((photo: any): Photo => ({
 				id: `pexels-${photo.id}`,
 				url: photo.url,
-				downloadUrl: photo.src[this.settings.imageSize] || photo.src.medium,
+				previewUrl: photo.src.medium,
+				downloadUrl: this.settings.imageSize === 'original' ? photo.src.original : (photo.src[this.settings.imageSize] || photo.src.medium),
 				photographer: photo.photographer,
 				source: 'Pexels',
 				tags: photo.alt ? photo.alt.split(' ') : [],
@@ -271,7 +273,8 @@ export default class PhotoSearchPlugin extends Plugin {
 		return response.json.results.map((photo: any): Photo => ({
 			id: `unsplash-${photo.id}`,
 			url: photo.links.html,
-			downloadUrl: photo.urls[this.settings.imageSize] || photo.urls.regular,
+			previewUrl: photo.urls.small,
+			downloadUrl: this.settings.imageSize === 'original' ? photo.urls.raw : (photo.urls[this.settings.imageSize] || photo.urls.regular),
 			photographer: photo.user.name,
 			source: 'Unsplash',
 			tags: photo.tags ? photo.tags.map((tag: any) => tag.title) : [],
@@ -289,7 +292,8 @@ export default class PhotoSearchPlugin extends Plugin {
 		return response.json.hits.map((photo: any): Photo => ({
 			id: `pixabay-${photo.id}`,
 			url: photo.pageURL,
-			downloadUrl: photo.webformatURL,
+			previewUrl: photo.previewURL,
+			downloadUrl: this.settings.imageSize === 'original' ? photo.largeImageURL : (photo.webformatURL),
 			photographer: photo.user,
 			source: 'Pixabay',
 			tags: photo.tags.split(', '),
@@ -301,33 +305,109 @@ export default class PhotoSearchPlugin extends Plugin {
 
 	async savePhoto(photo: Photo, searchQuery: string) {
 		try {
-			// Create directory if it doesn't exist
 			const folder = this.settings.saveLocation;
 			if (!await this.app.vault.adapter.exists(folder)) {
 				await this.app.vault.createFolder(folder);
 			}
+					// Generate filename first to ensure uniqueness
+		// Better extension detection for different sources
+		let extension = 'jpg'; // Default fallback
+		if (photo.source === 'Unsplash') {
+			// Unsplash images are typically JPEG
+			extension = 'jpg';
+		} else {
+			// Try to extract extension from URL, but validate it
+			const urlExtension = photo.downloadUrl.split('.').pop()?.split('?')[0];
+			if (urlExtension && ['jpg', 'jpeg', 'png', 'webp'].includes(urlExtension.toLowerCase())) {
+				extension = urlExtension.toLowerCase();
+			}
+		}
+		
+		const sanitizedQuery = searchQuery.replace(/[^a-zA-Z0-9]/g, '_');
+		const baseFilename = `${sanitizedQuery}_${photo.id}.${extension}`;
+		const basePath = normalizePath(`${folder}/${baseFilename}`);
+			
+			// Check if file already exists and create unique name if needed
+			let finalPath = basePath;
+			let finalFilename = baseFilename;
+			let counter = 1;
+			while (await this.app.vault.adapter.exists(finalPath)) {
+				const baseName = baseFilename.replace(/\.[^/.]+$/, "");
+				const ext = baseFilename.split('.').pop();
+				finalFilename = `${baseName}_${counter}.${ext}`;
+				finalPath = normalizePath(`${folder}/${finalFilename}`);
+				counter++;
+			}
 
-			// Download image
-			const response = await requestUrl({ url: photo.downloadUrl });
-			const imageData = response.arrayBuffer;
+			// Now download the specific image data for this photo
+			let imageData: ArrayBuffer;
+				if (photo.source === 'Unsplash') {
+			try {
+				// Simply download the image directly - most Unsplash URLs work this way
+				const imageResponse = await requestUrl({
+					url: photo.downloadUrl
+				});
+				
+				imageData = imageResponse.arrayBuffer;
+				
+				// Double-check we got valid image data
+				if (!imageData || imageData.byteLength === 0) {
+					throw new Error('No image data received from Unsplash');
+				}
+			} catch (error) {
+				// Fallback: try with auth headers
+				try {
+					const imageResponse = await requestUrl({
+						url: photo.downloadUrl,
+						headers: {
+							'Authorization': `Client-ID ${this.settings.unsplashApiKey}`
+						}
+					});
+					
+					imageData = imageResponse.arrayBuffer;
+					
+					if (!imageData || imageData.byteLength === 0) {
+						throw new Error('No image data received from Unsplash with auth');
+					}
+				} catch (authError) {
+					throw authError;
+				}
+			}
+			} else {
+				// For Pexels and Pixabay, direct download
+				const response = await requestUrl({ 
+					url: photo.downloadUrl,
+					headers: photo.source === 'Pexels' ? {
+						'Authorization': this.settings.pexelsApiKey
+					} : {}
+				});
+				
+				imageData = response.arrayBuffer;
+			}
+			
+			// Verify we have valid image data before saving
+			if (!imageData || imageData.byteLength === 0) {
+				throw new Error('No valid image data received');
+			}
+		
+		// Save the image file using the already calculated finalPath
+		await this.app.vault.createBinary(finalPath, imageData);
+		
+		// Extract the actual filename from the final path for metadata
+		const actualFilename = finalPath.split('/').pop() || finalFilename;
+		
+		// Small delay to ensure file is fully written before creating reference
+		await new Promise(resolve => setTimeout(resolve, 100));
 
-			// Generate filename
-			const extension = photo.downloadUrl.split('.').pop()?.split('?')[0] || 'jpg';
-			const filename = `${searchQuery.replace(/[^a-zA-Z0-9]/g, '_')}_${photo.id}.${extension}`;
-			const imagePath = `${folder}/${filename}`;
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (activeView) {
+			const editor = activeView.editor;
+			const cursor = editor.getCursor();
 
-			// Save image
-			await this.app.vault.createBinary(imagePath, imageData);
+			// Use the actual filename that was saved
+			const metadataBlock = `
 
-			// Get active editor
-			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-			if (activeView) {
-				const editor = activeView.editor;
-				const cursor = editor.getCursor();
-
-				const metadataBlock = `
-
-![[${imagePath}|300]]
+![[${actualFilename}|300]]
 
 > [!metadata]
 > - **Source**: ${photo.source}
@@ -337,13 +417,11 @@ export default class PhotoSearchPlugin extends Plugin {
 > - **Tags**: ${photo.tags.join(', ')}
 
 `;
+			editor.replaceRange(metadataBlock, cursor);
+		}
 
-				// Insert metadata at cursor position
-				editor.replaceRange(metadataBlock, cursor);
-			}
-
-			new Notice(`Photo saved and metadata inserted`);
-			return imagePath;
+		new Notice(`Photo saved: ${actualFilename}`);
+		return finalPath;
 		} catch (error) {
 			console.error('Error saving photo:', error);
 			new Notice('Error saving photo. Check console for details.');
@@ -463,7 +541,7 @@ class PhotoSearchModal extends Modal {
 			photoEl.style.cursor = 'pointer';
 
 			const imgEl = photoEl.createEl('img');
-			imgEl.src = photo.downloadUrl;
+			imgEl.src = photo.previewUrl;  // Use preview URL for the modal
 			imgEl.style.width = '100%';
 			imgEl.style.height = '150px';
 			imgEl.style.objectFit = 'cover';
@@ -607,6 +685,7 @@ class PhotoSearchSettingTab extends PluginSettingTab {
 				.addOption('small', 'Small')
 				.addOption('medium', 'Medium')
 				.addOption('large', 'Large')
+				.addOption('original', 'Original (Highest Resolution)')
 				.setValue(this.plugin.settings.imageSize)
 				.onChange(async (value) => {
 					this.plugin.settings.imageSize = value;
