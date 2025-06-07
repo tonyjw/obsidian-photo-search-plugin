@@ -404,6 +404,12 @@ export default class PhotoSearchPlugin extends Plugin {
 			const editor = activeView.editor;
 			const cursor = editor.getCursor();
 
+			// Format file size for display
+			const fileSizeFormatted = this.formatFileSize(imageData.byteLength);
+			
+			// Calculate maximum print size at professional quality
+			const maxPrintSize = this.calculateMaxPrintSize(photo.width, photo.height);
+			
 			// Use the actual filename that was saved
 			const metadataBlock = `
 
@@ -414,7 +420,9 @@ export default class PhotoSearchPlugin extends Plugin {
 > - **Photographer**: ${photo.photographer}
 > - **Original**: [View on ${photo.source}](${photo.url})
 > - **Search Query**: "${searchQuery}"${photo.description ? `\n> - **Description**: ${photo.description}` : ''}
-> - **Tags**: ${photo.tags.join(', ')}
+> - **Dimensions**: ${photo.width} × ${photo.height} pixels
+> - **File Size**: ${fileSizeFormatted}
+> - **Max Print Size**: ${maxPrintSize}
 
 `;
 			editor.replaceRange(metadataBlock, cursor);
@@ -426,6 +434,36 @@ export default class PhotoSearchPlugin extends Plugin {
 			console.error('Error saving photo:', error);
 			new Notice('Error saving photo. Check console for details.');
 		}
+	}
+
+	// Helper method to format file size
+	formatFileSize(bytes: number): string {
+		if (bytes === 0) return '0 Bytes';
+		
+		const k = 1024;
+		const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+		const i = Math.floor(Math.log(bytes) / Math.log(k));
+		
+		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+	}
+
+	// Helper method to calculate maximum print size at 300 DPI
+	calculateMaxPrintSize(width: number, height: number): string {
+		const targetDPI = 300; // Professional print quality
+		
+		// Calculate maximum dimensions in inches
+		const maxWidthInches = width / targetDPI;
+		const maxHeightInches = height / targetDPI;
+		
+		// Format to reasonable decimal places
+		const widthFormatted = maxWidthInches.toFixed(1);
+		const heightFormatted = maxHeightInches.toFixed(1);
+		
+		// Also calculate in centimeters for international users
+		const maxWidthCm = (maxWidthInches * 2.54).toFixed(1);
+		const maxHeightCm = (maxHeightInches * 2.54).toFixed(1);
+		
+		return `${widthFormatted}" × ${heightFormatted}" (${maxWidthCm} × ${maxHeightCm} cm) at 300 DPI`;
 	}
 }
 
