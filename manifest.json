@@ -1,7 +1,7 @@
 {
 	"id": "photo-search-plugin",
 	"name": "Photo Search Plugin",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"minAppVersion": "0.15.0",
 	"description": "Search and download free licensed photos from Pexels, Unsplash, and Pixabay by highlighting text or custom queries",
 	"author": "Tony Wieczorek",
