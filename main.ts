@@ -510,19 +510,82 @@ class PhotoSearchModal extends Modal {
 
 	async searchAndDisplayPhotos(container: HTMLElement) {
 		try {
+			// Check if any API keys are configured
+			const hasApiKeys = this.plugin.settings.pexelsApiKey || 
+							  this.plugin.settings.unsplashApiKey || 
+							  this.plugin.settings.pixabayApiKey;
+			
+			if (!hasApiKeys) {
+				container.empty();
+				const errorEl = container.createEl('div', { cls: 'api-key-error' });
+				errorEl.style.padding = '20px';
+				errorEl.style.textAlign = 'center';
+				errorEl.style.backgroundColor = '#dc3545';
+				errorEl.style.borderRadius = '8px';
+				errorEl.style.border = '1px solid #dc3545';
+				errorEl.style.color = 'white';
+				
+				errorEl.createEl('h3', { 
+					text: '🔑 API Keys Required',
+					attr: { style: 'margin-top: 0; color: white; font-weight: bold; font-size: 1.2em;' }
+				});
+				
+				errorEl.createEl('p', { 
+					text: 'To search for photos, you need to configure at least one API key in the plugin settings.',
+					attr: { style: 'margin-bottom: 15px; color: white; opacity: 0.9;' }
+				});
+				
+				const buttonEl = errorEl.createEl('button', { 
+					text: 'Open Settings',
+					attr: { style: 'padding: 10px 20px; background: white; color: #dc3545; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: all 0.2s;' }
+				});
+				
+				buttonEl.addEventListener('mouseenter', () => {
+					buttonEl.style.backgroundColor = '#f8f9fa';
+					buttonEl.style.transform = 'translateY(-1px)';
+				});
+				
+				buttonEl.addEventListener('mouseleave', () => {
+					buttonEl.style.backgroundColor = 'white';
+					buttonEl.style.transform = 'translateY(0)';
+				});
+				
+				buttonEl.addEventListener('click', () => {
+					this.close();
+					// Open plugin settings
+					(this.app as any).setting.open();
+					(this.app as any).setting.openTabById(this.plugin.manifest.id);
+				});
+				
+				return;
+			}
+			
 			this.photos = await this.plugin.searchPhotos(this.query);
+			
 			container.empty();
 			this.displayPhotos(container);
 		} catch (error) {
+			console.error('Detailed search error:', error);
 			container.empty();
-			container.createEl('div', { text: 'Error searching for photos. Please check your API keys.' });
-			console.error('Search error:', error);
+			container.createEl('div', { text: 'Error searching for photos. Please check your API keys and browser console for details.' });
 		}
 	}
 
 	displayPhotos(container: HTMLElement = this.contentEl) {
 		if (this.photos.length === 0) {
-			container.createEl('p', { text: 'No photos found. Try a different search term.' });
+			// Check if this is due to no API keys or genuinely no results
+			const hasApiKeys = this.plugin.settings.pexelsApiKey || 
+							  this.plugin.settings.unsplashApiKey || 
+							  this.plugin.settings.pixabayApiKey;
+			
+			if (hasApiKeys) {
+				// API keys are configured but no results found
+				container.createEl('p', { 
+					text: 'No photos found for this search term. Try different keywords or check if AI-generated images are enabled if needed.',
+					attr: { style: 'text-align: center; padding: 20px; color: var(--text-muted);' }
+				});
+			}
+			// If no API keys, the error is already handled in searchAndDisplayPhotos
 			return;
 		}
 
@@ -694,7 +757,7 @@ class PhotoSearchSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Save Metadata')
-			.setDesc('Save photo metadata and attribution information')
+			.setDesc('Insert photo metadata and attribution information into the note')
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.saveMetadata)
 				.onChange(async (value) => {
