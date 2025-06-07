@@ -2,6 +2,9 @@
 *.log
 npm-debug.log*
 
+# Development configuration (contains local paths)
+dev.config.local.js
+
 # Runtime data
 pids
 *.pid
