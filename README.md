@@ -71,6 +71,7 @@ Search results are organized in a tabbed interface by provider:
 - **Smart Defaults**: Opens with your configured default provider (set in settings)
 - **Disabled States**: Tabs are disabled for providers without API keys configured
 - **Individual Results**: Browse results from each provider separately
+- **Top Pagination**: Navigation controls appear at the top for easy page browsing without scrolling
 
 **Default Provider Setting**: Configure which provider tab opens by default in Settings → Photo Search Plugin → Default Provider.
 

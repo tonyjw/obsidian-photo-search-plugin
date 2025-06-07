@@ -346,6 +346,71 @@ export default class PhotoSearchPlugin extends Plugin {
 			.tab-content.active {
 				display: block;
 			}
+
+			/* Pagination controls styling */
+			.pagination-container {
+				display: flex;
+				justify-content: center;
+				align-items: center;
+				gap: 10px;
+				padding: 15px 0;
+				border-bottom: 1px solid var(--background-modifier-border);
+				margin-bottom: 15px;
+			}
+
+			.pagination-btn {
+				padding: 8px 12px;
+				border: 1px solid var(--background-modifier-border);
+				background: var(--background-secondary);
+				color: var(--text-normal);
+				border-radius: 6px;
+				cursor: pointer;
+				font-size: 13px;
+				font-weight: 500;
+				transition: all 0.2s ease;
+				min-width: 80px;
+			}
+
+			.pagination-btn:hover:not(:disabled) {
+				background: var(--background-modifier-hover);
+				border-color: var(--interactive-accent);
+			}
+
+			.pagination-btn:disabled {
+				opacity: 0.5;
+				cursor: not-allowed;
+				background: var(--background-secondary);
+			}
+
+			.pagination-info {
+				font-size: 13px;
+				color: var(--text-muted);
+				padding: 0 15px;
+				white-space: nowrap;
+			}
+
+			.pagination-loading {
+				display: inline-flex;
+				align-items: center;
+				gap: 8px;
+				font-size: 13px;
+				color: var(--text-muted);
+				padding: 0 15px;
+			}
+
+			.pagination-spinner {
+				width: 16px;
+				height: 16px;
+				border: 2px solid var(--background-modifier-border);
+				border-top: 2px solid var(--interactive-accent);
+				border-radius: 50%;
+				animation: spin 1s linear infinite;
+			}
+
+			@keyframes spin {
+				0% { transform: rotate(0deg); }
+				100% { transform: rotate(360deg); }
+			}
 		`;
 		const style = document.createElement('style');
 		style.textContent = css;
@@ -631,14 +696,14 @@ export default class PhotoSearchPlugin extends Plugin {
 			return photo ? [photo] : [];
 		}
 
-		// Regular search across all providers
+		// Regular search across all providers - just get first page for initial search
 		const results: Photo[] = [];
 		
 		// Search Pexels
 		if (this.settings.pexelsApiKey) {
 			try {
-				const pexelsResults = await this.searchPexels(query);
-				results.push(...pexelsResults);
+				const pexelsResults = await this.searchPexels(query, 1);
+				results.push(...pexelsResults.photos);
 			} catch (error) {
 				console.error('Error searching Pexels:', error);
 			}
@@ -647,8 +712,8 @@ export default class PhotoSearchPlugin extends Plugin {
 		// Search Unsplash
 		if (this.settings.unsplashApiKey) {
 			try {
-				const unsplashResults = await this.searchUnsplash(query);
-				results.push(...unsplashResults);
+				const unsplashResults = await this.searchUnsplash(query, 1);
+				results.push(...unsplashResults.photos);
 			} catch (error) {
 				console.error('Error searching Unsplash:', error);
 			}
@@ -657,8 +722,8 @@ export default class PhotoSearchPlugin extends Plugin {
 		// Search Pixabay
 		if (this.settings.pixabayApiKey) {
 			try {
-				const pixabayResults = await this.searchPixabay(query);
-				results.push(...pixabayResults);
+				const pixabayResults = await this.searchPixabay(query, 1);
+				results.push(...pixabayResults.photos);
 			} catch (error) {
 				console.error('Error searching Pixabay:', error);
 			}
@@ -667,15 +732,46 @@ export default class PhotoSearchPlugin extends Plugin {
 		return results;
 	}
 
-	async searchPexels(query: string): Promise<Photo[]> {
+	// New method to search a specific provider with pagination
+	async searchPhotosWithPagination(query: string, provider: string, page: number = 1): Promise<{ photos: Photo[], totalPages: number, hasMore: boolean }> {
+		// Check if the query is a URL from one of our supported providers
+		const urlInfo = this.detectPhotoURL(query);
+		if (urlInfo) {
+			const photo = await this.fetchPhotoByURL(urlInfo.provider, urlInfo.id);
+			return { photos: photo ? [photo] : [], totalPages: 1, hasMore: false };
+		}
+
+		// Search specific provider with pagination
+		switch (provider) {
+			case 'pexels':
+				if (this.settings.pexelsApiKey) {
+					return await this.searchPexels(query, page);
+				}
+				break;
+			case 'unsplash':
+				if (this.settings.unsplashApiKey) {
+					return await this.searchUnsplash(query, page);
+				}
+				break;
+			case 'pixabay':
+				if (this.settings.pixabayApiKey) {
+					return await this.searchPixabay(query, page);
+				}
+				break;
+		}
+
+		return { photos: [], totalPages: 1, hasMore: false };
+	}
+
+	async searchPexels(query: string, page: number = 1): Promise<{ photos: Photo[], totalPages: number, hasMore: boolean }> {
 		const response = await requestUrl({
-			url: `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=20`,
+			url: `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=20&page=${page}`,
 			headers: {
 				'Authorization': this.settings.pexelsApiKey
 			}
 		});
 
-		return response.json.photos
+		const photos = response.json.photos
 			.filter((photo: any) => this.settings.includeAiImages || !photo.ai_generated)
 			.map((photo: any): Photo => ({
 				id: `pexels-${photo.id}`,
@@ -690,17 +786,25 @@ export default class PhotoSearchPlugin extends Plugin {
 				height: photo.height,
 				isAiGenerated: photo.ai_generated || false
 			}));
+
+		// Calculate pagination info
+		const totalPhotos = response.json.total_results;
+		const perPage = 20;
+		const totalPages = Math.ceil(totalPhotos / perPage);
+		const hasMore = page < totalPages;
+
+		return { photos, totalPages, hasMore };
 	}
 
-	async searchUnsplash(query: string): Promise<Photo[]> {
+	async searchUnsplash(query: string, page: number = 1): Promise<{ photos: Photo[], totalPages: number, hasMore: boolean }> {
 		const response = await requestUrl({
-			url: `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=20${!this.settings.includeAiImages ? '&content_filter=high' : ''}`,
+			url: `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=20&page=${page}${!this.settings.includeAiImages ? '&content_filter=high' : ''}`,
 			headers: {
 				'Authorization': `Client-ID ${this.settings.unsplashApiKey}`
 			}
 		});
 
-		return response.json.results.map((photo: any): Photo => ({
+		const photos = response.json.results.map((photo: any): Photo => ({
 			id: `unsplash-${photo.id}`,
 			url: photo.links.html,
 			previewUrl: photo.urls.small,
@@ -713,14 +817,22 @@ export default class PhotoSearchPlugin extends Plugin {
 			height: photo.height,
 			isAiGenerated: undefined  // Unsplash doesn't provide explicit AI generation status
 		}));
+
+		// Calculate pagination info
+		const totalPhotos = response.json.total;
+		const perPage = 20;
+		const totalPages = Math.ceil(totalPhotos / perPage);
+		const hasMore = page < totalPages;
+
+		return { photos, totalPages, hasMore };
 	}
 
-	async searchPixabay(query: string): Promise<Photo[]> {
+	async searchPixabay(query: string, page: number = 1): Promise<{ photos: Photo[], totalPages: number, hasMore: boolean }> {
 		const response = await requestUrl({
-			url: `https://pixabay.com/api/?key=${this.settings.pixabayApiKey}&q=${encodeURIComponent(query)}&image_type=photo&per_page=20${!this.settings.includeAiImages ? '&ai_art=false' : ''}`
+			url: `https://pixabay.com/api/?key=${this.settings.pixabayApiKey}&q=${encodeURIComponent(query)}&image_type=photo&per_page=20&page=${page}${!this.settings.includeAiImages ? '&ai_art=false' : ''}`
 		});
 
-		return response.json.hits.map((photo: any): Photo => ({
+		const photos = response.json.hits.map((photo: any): Photo => ({
 			id: `pixabay-${photo.id}`,
 			url: photo.pageURL,
 			previewUrl: photo.previewURL,
@@ -733,6 +845,14 @@ export default class PhotoSearchPlugin extends Plugin {
 			height: photo.imageHeight,
 			isAiGenerated: undefined  // Pixabay uses filtering but doesn't provide explicit status in response
 		}));
+
+		// Calculate pagination info  
+		const totalPhotos = response.json.totalHits;
+		const perPage = 20;
+		const totalPages = Math.ceil(totalPhotos / perPage);
+		const hasMore = page < totalPages;
+
+		return { photos, totalPages, hasMore };
 	}
 
 	async savePhoto(photo: Photo, searchQuery: string) {
@@ -930,6 +1050,11 @@ class PhotoSearchModal extends Modal {
 	searchInput: HTMLInputElement;
 	activeTab: string = 'unsplash';
 	currentPreviewOverlay: HTMLElement | null = null;
+	// Pagination state for each provider
+	currentPage: { [key: string]: number } = { 'pexels': 1, 'unsplash': 1, 'pixabay': 1 };
+	totalPages: { [key: string]: number } = { 'pexels': 1, 'unsplash': 1, 'pixabay': 1 };
+	hasMoreResults: { [key: string]: boolean } = { 'pexels': true, 'unsplash': true, 'pixabay': true };
+	loadingPage: { [key: string]: boolean } = { 'pexels': false, 'unsplash': false, 'pixabay': false };
 
 	constructor(app: App, plugin: PhotoSearchPlugin, query: string) {
 		super(app);
@@ -937,6 +1062,29 @@ class PhotoSearchModal extends Modal {
 		this.query = query;
 		this.activeTab = plugin.settings.defaultProvider;
 		this.modalEl.addClass('photo-search-modal');
+	}
+
+	async loadPaginationInfo() {
+		// Load pagination info for each provider that has an API key
+		const providers = ['pexels', 'unsplash', 'pixabay'];
+		
+		for (const provider of providers) {
+			const hasApiKey = (provider === 'pexels' && this.plugin.settings.pexelsApiKey) ||
+							 (provider === 'unsplash' && this.plugin.settings.unsplashApiKey) ||
+							 (provider === 'pixabay' && this.plugin.settings.pixabayApiKey);
+			
+			if (hasApiKey) {
+				try {
+					const result = await this.plugin.searchPhotosWithPagination(this.query, provider, 1);
+					this.totalPages[provider] = result.totalPages;
+					this.hasMoreResults[provider] = result.hasMore;
+				} catch (error) {
+					console.error(`Error loading pagination info for ${provider}:`, error);
+					this.totalPages[provider] = 1;
+					this.hasMoreResults[provider] = false;
+				}
+			}
+		}
 	}
 
 	onOpen() {
@@ -1083,14 +1231,22 @@ class PhotoSearchModal extends Modal {
 				});
 			}
 			
+			// Reset pagination state for new search
+			this.currentPage = { 'pexels': 1, 'unsplash': 1, 'pixabay': 1 };
+			this.totalPages = { 'pexels': 1, 'unsplash': 1, 'pixabay': 1 };
+			this.hasMoreResults = { 'pexels': true, 'unsplash': true, 'pixabay': true };
+
 			this.photos = await this.plugin.searchPhotos(this.query);
 			
-			// Group photos by provider
+			// Group photos by provider and initialize pagination data
 			this.photosByProvider = {
 				'pexels': this.photos.filter(p => p.source === 'Pexels'),
 				'unsplash': this.photos.filter(p => p.source === 'Unsplash'),
 				'pixabay': this.photos.filter(p => p.source === 'Pixabay')
 			};
+
+			// Load detailed pagination info for each provider
+			await this.loadPaginationInfo();
 			
 			// Only clear container if we didn't show URL feedback
 			if (!urlInfo) {
@@ -1219,7 +1375,111 @@ class PhotoSearchModal extends Modal {
 		});
 	}
 
+	addPaginationControls(container: HTMLElement, provider: string) {
+		const paginationContainer = container.createEl('div', { cls: 'pagination-container' });
+		
+		// Previous button
+		const prevButton = paginationContainer.createEl('button', { 
+			cls: 'pagination-btn',
+			text: 'Previous'
+		});
+		prevButton.disabled = this.currentPage[provider] <= 1;
+		
+		// Page info
+		const pageInfo = paginationContainer.createEl('span', { cls: 'pagination-info' });
+		if (this.loadingPage[provider]) {
+			pageInfo.innerHTML = `
+				<span class="pagination-loading">
+					<span class="pagination-spinner"></span>
+					Loading...
+				</span>
+			`;
+		} else {
+			pageInfo.textContent = `Page ${this.currentPage[provider]} of ${this.totalPages[provider]}`;
+		}
+		
+		// Next button
+		const nextButton = paginationContainer.createEl('button', { 
+			cls: 'pagination-btn',
+			text: 'Next'
+		});
+		nextButton.disabled = this.currentPage[provider] >= this.totalPages[provider] || !this.hasMoreResults[provider];
+		
+		// Event handlers for pagination
+		prevButton.addEventListener('click', async () => {
+			if (this.currentPage[provider] > 1 && !this.loadingPage[provider]) {
+				await this.loadPage(provider, this.currentPage[provider] - 1);
+			}
+		});
+		
+		nextButton.addEventListener('click', async () => {
+			if (this.currentPage[provider] < this.totalPages[provider] && this.hasMoreResults[provider] && !this.loadingPage[provider]) {
+				await this.loadPage(provider, this.currentPage[provider] + 1);
+			}
+		});
+	}
+
+	async loadPage(provider: string, page: number) {
+		// Set loading state
+		this.loadingPage[provider] = true;
+		this.currentPage[provider] = page;
+		
+		try {
+			// Find and update the pagination controls to show loading state
+			const activeTabContent = this.contentEl.querySelector(`.tab-content[data-provider="${provider}"].active`) as HTMLElement;
+			if (activeTabContent) {
+				const paginationInfo = activeTabContent.querySelector('.pagination-info');
+				if (paginationInfo) {
+					paginationInfo.innerHTML = `
+						<span class="pagination-loading">
+							<span class="pagination-spinner"></span>
+							Loading page ${page}...
+						</span>
+					`;
+				}
+				
+				// Disable pagination buttons during loading
+				const buttons = activeTabContent.querySelectorAll('.pagination-btn') as NodeListOf<HTMLButtonElement>;
+				buttons.forEach(btn => btn.disabled = true);
+			}
+			
+			// Load photos for the new page
+			const result = await this.plugin.searchPhotosWithPagination(this.query, provider, page);
+			
+			// Update photos for this provider
+			this.photosByProvider[provider] = result.photos;
+			this.totalPages[provider] = result.totalPages;
+			this.hasMoreResults[provider] = result.hasMore;
+			
+			// Clear loading state before re-rendering
+			this.loadingPage[provider] = false;
+			
+			// Re-render the active tab if it matches this provider
+			if (this.activeTab === provider && activeTabContent) {
+				// Clear and re-render the grid
+				activeTabContent.empty();
+				this.renderPhotosGrid(activeTabContent, this.photosByProvider[provider] || []);
+			}
+			
+		} catch (error) {
+			console.error(`Error loading page ${page} for ${provider}:`, error);
+			new Notice(`Error loading page ${page}. Please try again.`);
+			
+			// Clear loading state and restore previous page number on error
+			this.loadingPage[provider] = false;
+			if (page > 1) {
+				this.currentPage[provider] = page - 1; // Revert to previous page on error
+			}
+		}
+	}
+
 	renderPhotosGrid(container: HTMLElement, photos: Photo[]) {
+		// Add pagination controls at the top for the current provider
+		const currentProvider = container.getAttribute('data-provider');
+		if (currentProvider && this.totalPages[currentProvider] > 1) {
+			this.addPaginationControls(container, currentProvider);
+		}
+
 		if (photos.length === 0) {
 			container.createEl('p', { 
 				text: 'No photos found from this provider.',
@@ -1256,6 +1516,7 @@ class PhotoSearchModal extends Modal {
 				text: `📸 ${photo.photographer}`,
 				attr: { style: 'font-weight: 500; margin-bottom: 2px;' }
 			});
+			
 			infoEl.createEl('div', { 
 				text: `📦 ${photo.source}`,
 				attr: { style: 'font-size: 11px; opacity: 0.8;' }
@@ -1274,6 +1535,8 @@ class PhotoSearchModal extends Modal {
 				this.showImagePreview(photo.downloadUrl, photo.photographer, photo);
 			});
 		});
+
+		// Pagination controls are now added at the top of the method
 	}
 
 	showImagePreview(imageUrl: string, photographer: string, photo: Photo) {
